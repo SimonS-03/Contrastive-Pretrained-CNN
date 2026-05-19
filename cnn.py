@@ -4,9 +4,10 @@ import matplotlib.pyplot as plt
 import torch
 import tqdm
 from convolution import Convolution_Layer
+from mlp import MLP_Layer
 
 class CNN:
-    def __init__(self, layers: list[Convolution_Layer], lam: float = 0):
+    def __init__(self, layers: list[Convolution_Layer | MLP_Layer], lam: float = 0):
         """Creates a linear classifier with 10 output classes.
         Args:
             layers: A list of either convolution-layers or mlp-layers, already initialized.
@@ -40,7 +41,7 @@ class CNN:
         return np.exp(y_pred) / np.sum(np.exp(y_pred), axis = 0)
     
 
-    def __forward(self, Mx: np.ndarray = None):
+    def forward(self, Mx: np.ndarray = None):
         """Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)"""
         x = Mx
         for layer in self.layers:

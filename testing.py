@@ -76,5 +76,40 @@ def test_mlp():
 		print("Diff with " + input_list[i] + " as input:", np.linalg.norm(diff))
 
 
+def test_total_forward():
+	"""The the forward pass with one convolution and two MLP layers. """
+
+	debug_file = 'Datasets/debug_info.npz'
+	load_data = np.load(debug_file)
+	X = load_data['X'] # (d, n)
+	Fs = load_data['Fs'] # (f, f, rgb, nf)
+
+	f = Fs.shape[0]
+	nf = 2
+
+	loader = dataloader.Dataloader()
+	Mx = loader.create_Mx(X=X, filter_width=f, image_width=32)# (d/f^2, f^2*rgb, n)
+
+	conv = convolution.Convolution_Layer(filter_width=f, nf=nf, activation_function="ReLu")
+	conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
+
+	mlp_1 = mlp.MLP_Layer(input_dim=load_data['conv_flat'].shape[0], output_dim=load_data['X1'].shape[0], activation_function="ReLu")
+	mlp_1.W = load_data['W1']
+	mlp_1.b = load_data['b1']
+
+	mlp_2 = mlp.MLP_Layer(input_dim=load_data['X1'].shape[0], output_dim=load_data['P'].shape[0], activation_function="softmax")
+	mlp_2.W = load_data['W2']
+	mlp_2.b = load_data['b2']
+
+	cnn_test = cnn.CNN([conv, mlp_1, mlp_2])
+
+	cnn_test.forward(Mx)
+
+	print("conv diff:", np.linalg.norm(conv.h - load_data['conv_flat']))
+	print("x1 diff:", np.linalg.norm(mlp_1.h - load_data['X1']))
+	print("p diff:", np.linalg.norm(mlp_2.h - load_data['P']))
+
+
+
 if __name__ == "__main__":
-	test_mlp()
+	test_total_forward()
