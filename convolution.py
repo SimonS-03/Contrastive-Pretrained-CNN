@@ -44,32 +44,7 @@ class Convolution_Layer:
 
 		self.h = act
 		return act
-		
-
-def test_conv():
-	"""Tests the MLP. """
-	
-	debug_file = 'Datasets/debug_info.npz'
-	load_data = np.load(debug_file)
-
-	X = load_data['X'] # (d, n)
-	Fs = load_data['Fs'] # (f, f, rgb, nf)
-
-	f = Fs.shape[0]
-	nf = 2
-
-	loader = Dataloader()
-	cur_input = loader.create_Mx(X=X, filter_width=f, image_width=32)# (d/f^2, f^2*rgb, n)
-
-	cur_output = load_data['conv_flat']
-
-	conv = Convolution_Layer(filter_width=f, nf=nf, activation_function="ReLu")
-	conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
-
-	diff = cur_output - conv.forward(Mx=cur_input)
-
-	print("Diff:", np.linalg.norm(diff))
 			
 
 if __name__ == "__main__":
-	test_conv()
+	pass
