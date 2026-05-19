@@ -6,7 +6,7 @@ class Dataloader:
     def __init__(self):
         pass
     
-    def create_Mx(self, X: np.ndarray, filter_width: int = 3, image_width: int = 32):
+    def create_Mx(self, X: np.ndarray, filter_width: int = 2, image_width: int = 32):
         """
         Make the Mx representation of square images for use with convolutional filters.
         Args:

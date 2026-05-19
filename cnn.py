@@ -3,10 +3,11 @@ import pickle
 import matplotlib.pyplot as plt
 import torch
 import tqdm
-from convolution import Convolution_Layer
+from convolution import Conv_Layer
+from mlp import MLP_Layer
 
 class CNN:
-    def __init__(self, layers: list[Convolution_Layer], lam: float = 0):
+    def __init__(self, layers: list[Conv_Layer], lam: float = 0):
         """Creates a linear classifier with 10 output classes.
         Args:
             layers: A list of either convolution-layers or mlp-layers, already initialized.
@@ -41,7 +42,7 @@ class CNN:
         return np.exp(y_pred) / np.sum(np.exp(y_pred), axis = 0)
     
 
-    def __forward(self, Mx: np.ndarray = None):
+    def forward(self, Mx: np.ndarray = None):
         """Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)"""
         x = Mx
         for layer in self.layers:
@@ -65,43 +66,51 @@ class CNN:
     def __get_gradient(self, Mx_batch, Y_batch, P_batch):
         """Returns the gradient of the loss wrt weights and biases in a tuple. Will use self.s1 and self.h1"""
         
-        g_batch = -np.transpose(Y_batch-P_batch) # (batch_size, 10)
+        g_batch = -np.transpose(Y_batch-P_batch) # (batch_size, num_labels)
         g_sum = np.expand_dims(g_batch.sum(axis = 0), axis = 1)
-        batch_size = Mx_batch.shape[2] # nbr points in batch
+        batch_size = g_batch.shape[0] # nbr points in batch
         
-        dl_dw2 = (g_batch.T @ self.h1.T)
-        dl_db2 = g_sum
-        
-        g_batch = g_batch @ self.W2 # (batch_size, hid_dim)
-        g_batch = g_batch * (self.s1 > 0).T
-        g_sum = np.expand_dims(g_batch.sum(axis = 0), axis = 1)
-        
-        
-        dl_dw1 = (g_batch.T @ self.h0.T)
-        dl_db1 = g_sum
+        grads = []
+        for i in range(1, len(self.layers)+1):
+            layer = self.layers[-i]
+            is_input_layer = i == 1
+            
+            layer_input = None
+            if is_input_layer: layer_input = Mx_batch
+            else: layer_input = self.layers[-(i+1)].h
 
+            # Activation function reversal
+            if layer.activation_function == "ReLu":
+                g_batch = g_batch * (layer.h > 0).T
+
+            # Gradient calculation 
+            if isinstance(layer, Conv_Layer):
+                g_batch = g_batch.T.reshape((self.n_p, self.nf, batch_size), order='C')
+                g_sum = np.sum(g_batch, axis=(0, 2)).reshape((self.nf, 1))
+                layer_input_T = np.transpose(layer_input, (1, 0, 2))
+                
+                grad = {}
+                dl_dF = np.einsum('ijn, jln ->il', layer_input_T, g_batch, optimize=True)/batch_size
+                grad["F"] = dl_dF + 2*self.lam*layer.F
+                grad["b"] = g_sum
+                grads.append(grad)
+
+            elif isinstance(layer, MLP_Layer):
+                grad = {}
+                dl_dW = (g_batch.T @ layer_input.T)/batch_size
+                grad["W"] = dl_dW + 2*self.lam*layer.W
+                grad["b"] = g_sum
+                grads.append(grad)
+
+            # Weight reversal 
+            if isinstance(layer, Conv_Layer):
+                pass
+            elif isinstance(layer, MLP_Layer):
+                g_batch = g_batch @ layer.W
+                g_sum = np.expand_dims(g_batch.sum(axis = 0), axis = 1)
         
-        g_batch = g_batch @ self.W1 
-        g_batch = g_batch * (self.s0 > 0).T # (batch_size, n_p*nf)
-        
-        # Here it is important to first transpose in order to preserve sample indexing
-        g_batch = g_batch.T.reshape((self.n_p, self.nf, batch_size), order='C')
-        g_sum = np.sum(g_batch, axis=(0, 2)).reshape((self.nf, 1))
-        Mxt = np.transpose(Mx_batch, (1, 0, 2))
-        dl_dFsFlat = np.einsum('ijn, jln ->il', Mxt, g_batch, optimize=True)
-        dl_dF_bias = g_sum
-
-        dl_dFsFlat /= batch_size; dl_dF_bias /= batch_size
-        dl_dw2 /= batch_size; dl_dw1 /= batch_size
-        dl_db2 /= batch_size; dl_db1 /= batch_size
-
-        dJ_dw2 = dl_dw2 + 2*self.lam*self.W2; dJ_dw1 = dl_dw1 + 2*self.lam*self.W1; 
-        dJ_db2 = dl_db2; dJ_db1 = dl_db1
-
-        dJ_dFs = dl_dFsFlat + 2*self.lam*self.filters
-        dJ_dFBias = dl_dF_bias
-
-        return {"W2": dJ_dw2, "W1": dJ_dw1, "b2": dJ_db2, "b1": dJ_db1, "Fs": dJ_dFs, "F_bias": dJ_dFBias}  
+        grads.reverse()
+        return grads
 
 
     def minibatchGD(self, X_train, Y_train, y_train, X_val = None, Y_val = None, y_val = None, num_epochs: int = 40, batch_size: int = 100, 

@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 
-class Convolution_Layer:
+class Conv_Layer:
     """Create a convolution layer. Initilization done with He init.
     Args:
         filter_width: the number of units across for the filers.
@@ -12,7 +12,8 @@ class Convolution_Layer:
         self.filter_width = filter_width
         self.nf = nf
         self.filter_entries = filter_width**2 * 3 # Square filter, 3 channels
-        
+        self.n_p = None
+
         rng = np.random.default_rng()
         seed = 42
         bit_gen = type(rng.bit_generator)
@@ -32,6 +33,8 @@ class Convolution_Layer:
     
     def forward(self, Mx: np.ndarray) -> np.ndarray:
         n_patches = Mx.shape[0] # Mx has shape (n_patches, filter_entries, batch_size)
+        self.n_p = n_patches
+        
         pre_act = np.einsum("ijn, jl -> iln", Mx, self.F, optimize=True) + self.b.reshape(1, self.nf, 1) #(np, nf, batch_size)
         pre_act = pre_act.reshape((n_patches*self.nf, pre_act.shape[2]), order='C') # (n_p*n_f, batch_size)
 
