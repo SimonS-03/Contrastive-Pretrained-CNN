@@ -4,10 +4,6 @@ import matplotlib.pyplot as plt
 import torch
 import tqdm
 
-class MLP_Layer:
-    def __init__(self):
-        pass
-
 class Convolution_Layer:
     def __init__(self):
         pass
