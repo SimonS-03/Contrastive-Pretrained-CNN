@@ -7,7 +7,7 @@ from convolution import Conv_Layer
 from mlp import MLP_Layer
 
 class CNN:
-    def __init__(self, layers: list[Conv_Layer], lam: float = 0):
+    def __init__(self, layers: list[Conv_Layer | MLP_Layer], lam: float = 0):
         """Creates a linear classifier with 10 output classes.
         Args:
             layers: A list of either convolution-layers or mlp-layers, already initialized.
@@ -23,19 +23,18 @@ class CNN:
         else: # Down-cycle
             return max_lr - (max_lr-min_lr)*(iteration-cycle_count*cycle_length)/cycle_length
     
-    def __get_increasing_cyclic_lr(self, min_lr, max_lr, starting_cycle_length, iteration):
+    def get_increasing_cyclic_lr(self, min_lr, max_lr, starting_cycle_length, iteration):
         period_count = np.floor(np.log2(1+iteration/(2*starting_cycle_length)))
         current_period_length = 2*starting_cycle_length * 2**(period_count)
         period_start = 2*starting_cycle_length * (2**period_count - 1)
 
         if iteration < (period_start + current_period_length/2): # Up-cycle
             cycle_start = period_start
-            print(f"Period: {period_count} started at {period_start}, Type: upcycle started at {cycle_start}")
             return min_lr + (max_lr-min_lr)*(iteration-cycle_start)/(current_period_length/2)
         else: # Down-cycle
             cycle_start = period_start + current_period_length/2
-            print(f"Period: {period_count} started at {period_start}, Type: downcycle started at {cycle_start}")
             return max_lr - (max_lr-min_lr)*(iteration-cycle_start)/(current_period_length/2)
+    
 
     def __softmax(self, y_pred: np.matrix):
         # y_pred will have dimension (10, 10000)
@@ -240,3 +239,7 @@ class CNN:
         plt.show()
 
         return np.sum(corrects) / X.shape[1]
+
+
+if __name__ == "__main__":
+    pass

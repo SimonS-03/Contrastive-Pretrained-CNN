@@ -1,5 +1,5 @@
 import numpy as np
-import torch
+from dataloader import Dataloader
 
 
 class Conv_Layer:
@@ -20,14 +20,14 @@ class Conv_Layer:
         rng.bit_generator.state = bit_gen(seed).state
         self.rng = rng
 
-        self.F = rng.normal(loc=0, scale=np.sqrt(2/self.filter_entries), size=(self.filter_entries, self.nf)) 
-        """Filters. (filter_entries, nf)"""
+		self.F = rng.normal(loc=0, scale=np.sqrt(2/self.filter_entries), size=(self.filter_entries, self.nf)) 
+		"""Filters. (filter_entries, nf)"""
 
-        self.b = np.zeros(shape=(self.nf, 1))
-        """Filter bias. (filter_entries, nf)"""
+		self.b = np.zeros(shape=(self.nf, 1))
+		"""Filter bias. (filter_entries, nf)"""
 
-        self.h = None
-        """Activation of conv. layer. (n_p*nf, batch_size)"""
+		self.h = None
+		"""Activation of conv. layer. (n_p*nf, batch_size)"""
 
         self.activation_function = activation_function
     
@@ -38,12 +38,16 @@ class Conv_Layer:
         pre_act = np.einsum("ijn, jl -> iln", Mx, self.F, optimize=True) + self.b.reshape(1, self.nf, 1) #(np, nf, batch_size)
         pre_act = pre_act.reshape((n_patches*self.nf, pre_act.shape[2]), order='C') # (n_p*n_f, batch_size)
 
-        act = None
-        if self.activation_function == "ReLu": 
-            act = pre_act*pre_act[pre_act > 0]
-        else: # TODO: implement softmax?
-            raise ValueError("Activation function in layer not registered/implemented, returning None.")
+		act = None
+		if self.activation_function == "ReLu": 
+			act = pre_act
+			act[act < 0] *= 0
+		else: # TODO: implement softmax?
+			raise ValueError("Activation function in layer not registered/implemented, returning None.")
 
-        self.h = act
-        return act
-        
+		self.h = act
+		return act
+			
+
+if __name__ == "__main__":
+	pass
