@@ -109,7 +109,13 @@ def test_total_forward():
 	print("x1 diff:", np.linalg.norm(mlp_1.h - load_data['X1']))
 	print("p diff:", np.linalg.norm(mlp_2.h - load_data['P']))
 
-
+def test_total_backward():
+	cnn_test = cnn.CNN(layers= [convolution.Conv_Layer(filter_width=4, nf=2, activation_function="ReLu"),
+                   mlp.MLP_Layer(input_dim=((32//4)**2 * 2), output_dim=50, activation_function="ReLu"),
+                   mlp.MLP_Layer(input_dim=50, output_dim=10, activation_function="softmax")])
+	#cnn_test.forward()
+	#cnn_test.__get_gradient()
+	
 
 if __name__ == "__main__":
 	test_total_forward()
