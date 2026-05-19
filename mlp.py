@@ -1,7 +1,9 @@
 import numpy as np
 
 class MLP_Layer:
-	"""On layer of an MLP. """
+	"""One layer of an MLP. """
+
+
 	def __init__(self, input_dim:int, output_dim:int, activation_function:str, seed:int=42):
 		"""Initialize the MLP layer. 
 		
