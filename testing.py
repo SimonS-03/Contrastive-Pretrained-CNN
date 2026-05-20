@@ -2,6 +2,7 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pickle
 import mlp, cnn, convolution, dataloader
 
 
@@ -187,5 +188,72 @@ def test_overfit_small_sample():
 					  Y_val=load_data['Y'][:, :n], y_val=load_data['y'][:n], batch_size=n, max_lr=0.001, min_lr=0.001)
 	
 
+def test_mirroring():
+	"""Test mirroring data. """
+
+	# Load a batch of training data
+	cifar_dir = 'Datasets/cifar-10-batches-py/'
+	with open(cifar_dir + 'data_batch_1', 'rb') as fo:
+		dict = pickle.load(fo, encoding='bytes')
+
+	# Extract the image data and cast to float from the dict dictionary
+	X = dict[b'data'].astype(np.float64) / 255.0
+	X = X.transpose()
+	nn = X.shape[1]
+
+	# Reshape each image from a column vector to a 3d array
+	X_im = X.reshape((32, 32, 3, nn), order='F')
+	X_im = np.transpose(X_im, (1, 0, 2, 3))
+
+	X_mirror = dataloader.Dataloader().get_mirrored_data(X_im)
+
+	# Display the first 5 images
+	ni = 5
+	fig, axs = plt.subplots(1, 5, figsize=(10, 5))
+	for i in range(ni):
+		axs[i].imshow(X_im[:, :, :, i])
+	axs[i].axis('off')
+	plt.show()
+
+	# Display the first 5 images
+	ni = 5
+	fig, axs = plt.subplots(1, 5, figsize=(10, 5))
+	for i in range(ni):
+		axs[i].imshow(X_mirror[:, :, :, i])
+	axs[i].axis('off')
+	plt.show()
+	
+
+def test_rotation():
+	"""Test mirroring data. """
+
+	# Load a batch of training data
+	cifar_dir = 'Datasets/cifar-10-batches-py/'
+	with open(cifar_dir + 'data_batch_1', 'rb') as fo:
+		dict = pickle.load(fo, encoding='bytes')
+
+	# Extract the image data and cast to float from the dict dictionary
+	X = dict[b'data'].astype(np.float64) / 255.0
+	X = X.transpose()
+	nn = X.shape[1]
+
+	# Reshape each image from a column vector to a 3d array
+	X_im = X.reshape((32, 32, 3, nn), order='F')
+	X_im = np.transpose(X_im, (1, 0, 2, 3))
+
+	X_rot = dataloader.Dataloader().get_rotated_data(X_im)
+
+	x_jump = X_rot.shape[-1]//4
+
+	for j in range(3+1):
+		# Display the first 5 images
+		ni = 5
+		fig, axs = plt.subplots(1, 5, figsize=(10, 5))
+		for i in range(ni):
+			axs[i].imshow(X_rot[:, :, :, j*x_jump+i])
+		axs[i].axis('off')
+		plt.show()
+
+
 if __name__ == "__main__":
-	test_overfit_small_sample()
+	test_rotation()

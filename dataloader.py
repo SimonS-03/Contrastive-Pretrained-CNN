@@ -28,6 +28,53 @@ class Dataloader:
         self.Mx = Mx
         return Mx
     
+
+    def get_mirrored_data(self, X:np.ndarray) -> np.ndarray:
+        """Mirrors the data horisontally (mirror line is vertical in the middle). 
+        
+        Args:
+            X (np.ndarray): The data to be mirrored. (height, width, rgb, n)
+            
+        Returns:
+            X_mirror (np.ndarray): The mirrored data. (height, width, rgb, n)"""
+        
+        return np.flip(X.copy(), 1)
+    
+
+    def get_rotated_data(self, X:np.ndarray) -> np.ndarray:
+        """Get all the rotations of the original data. 
+        
+        Args:
+            X (np.ndarray): The data to be mirrored. (height, width, rgb, n)
+            
+        Returns:
+            X_rot (np.ndarray): The rotated data. (height, width, rgb, 4n)"""
+        
+        X_rot = X.copy()
+
+        for i in range(1, 3+1):
+            cur_X_rot = X.copy()
+            X_rot = np.concat((X_rot, np.rot90(cur_X_rot, i)), axis=3)
+        
+        return X_rot
+
+
+    def augment_data(self, X:np.ndarray) -> np.ndarray:
+        """Augment the data by rotating and flipping. 
+        
+        Args:
+            X (np.ndarray): The data to be augmented. (height, width, rgb, n)
+            
+        Returns:
+            X_aug (np.ndarray): The augmented data. (height, width, rgb, 8n)"""
+        
+        X = X.copy()
+
+        X = np.concat((X, self.get_mirrored_data(X)), axis=3)
+
+        return self.get_rotated_data(X)
+
+
     def unpickle(self, file: str, folder: str):
         try:
             with open(folder + file, "rb") as fi:

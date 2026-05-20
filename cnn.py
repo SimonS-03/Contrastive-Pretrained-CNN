@@ -92,7 +92,7 @@ class CNN:
 		"""Returns the gradient of the loss wrt weights and biases in a tuple. Will use self.s1 and self.h1
 		
 		Args:
-			Mx_batch (np.ndarray): The input data batch which was used for the current training batch. (input_dim, batch_size)
+			Mx_batch (np.ndarray): The input data batch which was used for the current training batch. (n_filters, filter_size, batch_size)
 			Y_batch (np.ndarray): The output/class data batch which was used for the current training batch. (num_labels, batch_size)
 			P_batch (np.ndarray): The prediction probabilities for the current batch. (num_labels, batch_size)
 			
@@ -157,7 +157,7 @@ class CNN:
 		"""Updates the network based on the gradients. 
 		
 		Args:
-			Mx_batch (np.ndarray): The input data batch which was used for the current training batch. (input_dim, batch_size)
+			Mx_batch (np.ndarray): The input data batch which was used for the current training batch. (n_filters, filter_size, batch_size)
 			Y_batch (np.ndarray): The output/class data batch which was used for the current training batch. (num_labels, batch_size)
 			P_batch (np.ndarray): The prediction probabilities for the current batch. (num_labels, batch_size)
 			min_lr (float): Minimum learning rate in the cyclic learning rate. 
