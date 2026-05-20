@@ -62,8 +62,22 @@ class CNN:
     def __cross_entropy_loss(self, p: np.matrix, Y_batch: np.matrix):
         return np.mean(np.sum(-Y_batch*np.log(p), axis = 0))
 
-    def __get_gradient(self, Mx_batch, Y_batch, P_batch):
-        """Returns the gradient of the loss wrt weights and biases in a tuple. Will use self.s1 and self.h1"""
+    def get_gradient(self, Mx_batch:np.ndarray, Y_batch:np.ndarray, P_batch:np.ndarray):
+        """Returns the gradient of the loss wrt weights and biases in a tuple. Will use self.s1 and self.h1
+        
+        Args:
+            Mx_batch (np.ndarray): The input data batch which was used for the current training batch. (input_dim, batch_size)
+            Y_batch (np.ndarray): The output/class data batch which was used for the current training batch. (num_labels, batch_size)
+            P_batch (np.ndarray): The prediction probabilities for the current batch. (num_labels, batch_size)
+            
+        Returns:
+            grads (list[dict]): List of dictionaries of the gradients of the weights and biases for each layer. \
+                Sorted from first to last layer. 
+            
+            Each dictionary in the list has the gradient of the weights (either **'W'** or **'F'**) and bias of one layer:
+                * **'W'** (np.ndarray): Gradient of the weights in the MLP. (local_output_dim, local_input_dim)
+                * **'F'** (np.ndarray): Gradient of the weights in the convolution. (local_output_dim, local_input_dim)
+                * **'b'** (np.ndarray): Gradient of the bias in one layer. (local_output_dim, 1)"""
         
         g_batch = -np.transpose(Y_batch-P_batch) # (batch_size, num_labels)
         g_sum = np.expand_dims(g_batch.sum(axis = 0), axis = 1)
@@ -72,7 +86,7 @@ class CNN:
         grads = []
         for i in range(1, len(self.layers)+1):
             layer = self.layers[-i]
-            is_input_layer = i == 1
+            is_input_layer = i == len(self.layers)
             
             layer_input = None
             if is_input_layer: layer_input = Mx_batch
@@ -84,8 +98,8 @@ class CNN:
 
             # Gradient calculation 
             if isinstance(layer, Conv_Layer):
-                g_batch = g_batch.T.reshape((self.n_p, self.nf, batch_size), order='C')
-                g_sum = np.sum(g_batch, axis=(0, 2)).reshape((self.nf, 1))
+                g_batch = g_batch.T.reshape((layer.n_p, layer.nf, batch_size), order='C')
+                g_sum = np.sum(g_batch, axis=(0, 2)).reshape((layer.nf, 1))
                 layer_input_T = np.transpose(layer_input, (1, 0, 2))
                 
                 grad = {}

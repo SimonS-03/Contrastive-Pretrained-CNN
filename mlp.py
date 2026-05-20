@@ -13,7 +13,7 @@ class MLP_Layer:
 			activation_function (str): The activation function of the layer. Can be ReLU, softmax.
 			seed (int): The seed for the random number generator. """
 		
-		self.activation = activation_function
+		self.activation_function = activation_function
 		"""The activation function of the layer. Can be ReLU, softmax. """
 		self.rng = self.__initialize_seed(seed)
 		"""The random number generator. """
@@ -67,15 +67,15 @@ class MLP_Layer:
 		# Apply layer
 		s = self.W @ X + self.b # (output_dim, input_dim) x (input_dim, n) = (output_dim, n)
 		
-		if self.activation == "ReLu":
+		if self.activation_function == "ReLu":
 			self.h = np.maximum(s, 0)
 			return self.h
-		elif self.activation == "softmax":
+		elif self.activation_function == "softmax":
 			self.h = np.exp(s) / np.sum(np.exp(s), axis=0)
 			return self.h
 		else:
 			raise ValueError("No correct activation function given in the MLP. \
-					The activation function given was: " + self.activation)
+					The activation function given was: " + self.activation_function)
 
 
 

@@ -109,13 +109,40 @@ def test_total_forward():
 	print("x1 diff:", np.linalg.norm(mlp_1.h - load_data['X1']))
 	print("p diff:", np.linalg.norm(mlp_2.h - load_data['P']))
 
+
 def test_total_backward():
-	cnn_test = cnn.CNN(layers= [convolution.Conv_Layer(filter_width=4, nf=2, activation_function="ReLu"),
-                   mlp.MLP_Layer(input_dim=((32//4)**2 * 2), output_dim=50, activation_function="ReLu"),
-                   mlp.MLP_Layer(input_dim=50, output_dim=10, activation_function="softmax")])
-	#cnn_test.forward()
-	#cnn_test.__get_gradient()
+	"""Test the total backward pass. """
+
+	debug_file = 'Datasets/debug_info.npz'
+	load_data = np.load(debug_file)
+	X = load_data['X'] # (d, n)
+	Fs = load_data['Fs'] # (f, f, rgb, nf)
+
+	f = Fs.shape[0]
+	nf = 2
+
+	loader = dataloader.Dataloader()
+	Mx = loader.create_Mx(X=X, filter_width=f, image_width=32)# (d/f^2, f^2*rgb, n)
+
+	conv = convolution.Conv_Layer(filter_width=f, nf=nf, activation_function="ReLu")
+	conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
+
+	mlp_1 = mlp.MLP_Layer(input_dim=load_data['conv_flat'].shape[0], output_dim=load_data['X1'].shape[0], activation_function="ReLu")
+	mlp_1.W = load_data['W1']
+	mlp_1.b = load_data['b1']
+
+	mlp_2 = mlp.MLP_Layer(input_dim=load_data['X1'].shape[0], output_dim=load_data['P'].shape[0], activation_function="softmax")
+	mlp_2.W = load_data['W2']
+	mlp_2.b = load_data['b2']
+
+	cnn_test = cnn.CNN([conv, mlp_1, mlp_2])
+
+	P = cnn_test.forward(Mx)
+
+	test_grads = cnn_test.get_gradient(Mx_batch=Mx, Y_batch=load_data['Y'], P_batch=P)
+
+	print("F grad diff:", np.linalg.norm(test_grads[0]['F'] - load_data['grad_Fs_flat']))
 	
 
 if __name__ == "__main__":
-	test_total_forward()
+	test_total_backward()
