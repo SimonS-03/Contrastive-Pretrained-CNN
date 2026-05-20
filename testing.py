@@ -5,6 +5,20 @@ import numpy as np
 import mlp, cnn, convolution, dataloader
 
 
+def test_cyclic_lr() -> None:
+	"""Test the increasing learning rate. """
+	lr_list = []
+	cnn_test = cnn.CNN([])
+	for i in range(100+1):
+		lr_list.append(cnn_test.get_cyclic_lr(min_lr=0.5, max_lr=1.5, cycle_length=10, iteration=i))
+
+	plt.plot(lr_list)
+	plt.title("Increasing learning rate")
+	plt.ylabel("Learning rate")
+	plt.xlabel("Iteration")
+	plt.show()
+
+
 def test_increasing_lr() -> None:
 	"""Test the increasing learning rate. """
 	lr_list = []
@@ -142,7 +156,36 @@ def test_total_backward():
 	test_grads = cnn_test.get_gradient(Mx_batch=Mx, Y_batch=load_data['Y'], P_batch=P)
 
 	print("F grad diff:", np.linalg.norm(test_grads[0]['F'] - load_data['grad_Fs_flat']))
+	print("Fb grad:", test_grads[0]['b'])
+
+
+def test_overfit_small_sample():
+
+	debug_file = 'Datasets/debug_info.npz'
+	load_data = np.load(debug_file)
+	X = load_data['X'] # (d, n)
+	Fs = load_data['Fs'] # (f, f, rgb, nf)
+
+	f = Fs.shape[0]
+	nf = 2
+
+	n = 5
+
+	loader = dataloader.Dataloader()
+	Mx = loader.create_Mx(X=X, filter_width=f, image_width=32)[:, :, :n]# (d/f^2, f^2*rgb, n)
+
+	conv = convolution.Conv_Layer(filter_width=f, nf=nf, activation_function="ReLu")
+	#conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
+
+	mlp_1 = mlp.MLP_Layer(input_dim=load_data['conv_flat'].shape[0], output_dim=load_data['X1'].shape[1], activation_function="ReLu")
+
+	mlp_2 = mlp.MLP_Layer(input_dim=load_data['X1'].shape[1], output_dim=load_data['P'].shape[0], activation_function="softmax")
+
+	cnn_test = cnn.CNN([conv, mlp_1, mlp_2])
+
+	cnn_test.minibatchGD(X_train=Mx, Y_train=load_data['Y'][:, :n], y_train=load_data['y'][:n], num_epochs=1000, X_val=Mx, \
+					  Y_val=load_data['Y'][:, :n], y_val=load_data['y'][:n], batch_size=n, max_lr=0.001, min_lr=0.001)
 	
 
 if __name__ == "__main__":
-	test_total_backward()
+	test_overfit_small_sample()
