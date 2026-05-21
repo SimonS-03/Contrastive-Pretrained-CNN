@@ -9,17 +9,17 @@ from mlp import MLP_Layer
 from utils import *
 
 class CNN:
-    def __init__(self, layers: list[Conv_Layer | MLP_Layer], lam: float = 0, seed:int=42):
-        """Creates a linear classifier with 10 output classes.
-        Args:
-            layers: A list of either convolution-layers or mlp-layers, already initialized.
-            lam: The lambda used in L2 regularization of the layers during backward pass"""
-        self.layers = layers
-        self.lam = lam
-        self.dataloader = Dataloader()
-        self.rng = self.__initialize_seed(seed)
-    
-    	def __initialize_seed(self, seed:int) -> np.random._generator.Generator:
+	def __init__(self, layers: list[Conv_Layer | MLP_Layer], lam: float = 0, seed:int=42):
+		"""Creates a linear classifier with 10 output classes.
+		Args:
+			layers: A list of either convolution-layers or mlp-layers, already initialized.
+			lam: The lambda used in L2 regularization of the layers during backward pass"""
+		self.layers = layers
+		self.lam = lam
+		self.dataloader = Dataloader()
+		self.rng = self.__initialize_seed(seed)
+	
+	def __initialize_seed(self, seed:int) -> np.random._generator.Generator:
 		"""Initialize the random number generator. 
 		
 		Args:
@@ -134,106 +134,95 @@ class CNN:
 		return grads
 
 
-	def __back_pass(self, Mx_batch:np.ndarray, Y_batch:np.ndarray, P_batch:np.ndarray, min_lr:float, max_lr:float, \
-				 n_s:int, cycle_index:int) -> None:
+	def __back_pass(self, Mx_batch:np.ndarray, Y_batch:np.ndarray, P_batch:np.ndarray,
+				 lr: float, grads: list[dict[str, float]]) -> None:
 		"""Updates the network based on the gradients. 
 		
 		Args:
 			Mx_batch (np.ndarray): The input data batch which was used for the current training batch. (n_filters, filter_size, batch_size)
 			Y_batch (np.ndarray): The output/class data batch which was used for the current training batch. (num_labels, batch_size)
-			P_batch (np.ndarray): The prediction probabilities for the current batch. (num_labels, batch_size)
-			min_lr (float): Minimum learning rate in the cyclic learning rate. 
-			max_lr (float): Maximum learning rate in the cyclic learning rate. 
-			n_s (int): Length of half a cycle in the cyclic learning rate. 
-			cycle_index (int): Current iteration in the cyclic learning rate. 
+			P_batch (np.ndarray): The prediction probabilities for the current batch. (num_labels, batch_size),
+			lr: learning rate,
+			grads: list of dictionaries containign gradient for each parameter.
 			"""
-		
-		grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
 
-		lr = self.get_cyclic_lr(min_lr=min_lr, max_lr=max_lr, cycle_length=n_s, iteration=cycle_index)
-		
 		for i in range(len(grads)):
 			cur_layer = self.layers[i]
-			if isinstance(cur_layer, MLP_Layer):
-				cur_layer.W -= lr * grads[i]['W']
-			elif isinstance(cur_layer, Conv_Layer):
-				cur_layer.F -= lr * grads[i]['F']
-			else:
-				raise ValueError("One layer is not MLP or Conv, the layer is: " + str(cur_layer))
-			
+			cur_layer.W -= lr * grads[i]['W']
 			cur_layer.b -= grads[i]['b']
 
 
-    def minibatchGD(self, X_train, Y_train, y_train, X_val, Y_val, y_val, schedule: lr_schedule, optim: optimizer,
-                     max_num_epochs: int = 40, batch_size: int = 100, 
-                    shuffle_set: bool = True, show_plots: bool = True):
-        """ Does end-to-end minibatch gradient descent with the given training data. Has options for """
-        Mx_train = self.dataloader.create_Mx(X_train) # Shape (n_p, filter_elements, n_images)
-        Mx_val = self.dataloader.create_Mx(X_val)
+	def minibatchGD(self, X_train, Y_train, y_train, X_val, Y_val, y_val, schedule: lr_schedule, optim: optimizer,
+					 max_num_epochs: int = 40, batch_size: int = 100, 
+					shuffle_set: bool = True, show_plots: bool = True):
+		""" Does end-to-end minibatch gradient descent with the given training data. Has options for """
+		Mx_train = self.dataloader.create_Mx(X_train) # Shape (n_p, filter_elements, n_images)
+		Mx_val = self.dataloader.create_Mx(X_val)
 
-        n_datapoints = Mx_train.shape[2]
-        num_minibatches = int(n_datapoints / batch_size)
+		n_datapoints = Mx_train.shape[2]
+		num_minibatches = int(n_datapoints / batch_size)
 
-        train_costs = []
-        train_losses = []
-        val_costs = []
-        val_losses = []
-        val_diffs = []
-        lr_decay_epochs = []
-        val_accuracys = []
-        train_accuracys = []
+		train_costs = []
+		train_losses = []
+		val_costs = []
+		val_losses = []
+		lr_decay_epochs = []
+		val_accuracys = []
+		train_accuracys = []
 
-		X_train_shuffled = X_train.copy()
+		Mx_train_shuffled = Mx_train.copy()
 		Y_train_shuffled = Y_train.copy()
 		val_cost = np.inf
 		
-		steps_since_plateau = 0
-		pbar = tqdm.tqdm(range(num_epochs))
-		cycle_index = 0
+		pbar = tqdm.tqdm(range(max_num_epochs))
+		update_step = 0
 
 		for i in pbar:
 			#print(f"Started epoch {i}")
 
 			permutation = self.rng.permutation(n_datapoints)
 			if shuffle_set:
-				X_train_shuffled = X_train_shuffled[:, :, permutation]
+				Mx_train_shuffled = Mx_train_shuffled[:, :, permutation]
 				Y_train_shuffled = Y_train_shuffled[:, permutation]
 	
 			
 			for j in range(num_minibatches):
 				#print(f"minibatch {j}")
-				j_start = j*batch_size
-				j_end = (j+1)*batch_size
+				batch_start = j*batch_size
+				batch_end = (j+1)*batch_size
 
-				X_batch = X_train_shuffled[:, :, j_start:j_end]
-				P_batch = self.forward(X_batch)
-				Y_batch = Y_train_shuffled[:, j_start:j_end]
+				Mx_batch = Mx_train_shuffled[:, :, batch_start:batch_end]
+				P_batch = self.forward(Mx_batch)
+				Y_batch = Y_train_shuffled[:, batch_start:batch_end]
 
-				self.__back_pass(Mx_batch=X_batch, Y_batch=Y_batch, P_batch=P_batch, min_lr=min_lr, \
-					 max_lr=max_lr, n_s=n_s, cycle_index=cycle_index)
-
-				cycle_index += 1
+				lr = schedule.get_lr(update_step)
+				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
+				grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
+				optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
+				
+				self.__back_pass(Mx_batch, Y_batch, P_batch, lr, optim_grads)
+				update_step += 1
 			
-			P_train = self.forward(X_train)
+
+			if not show_plots: # We only need the lists below for plots
+				continue
+
+			P_train = self.forward(Mx_train)
 			train_cost = self.__cost_function(P_train, Y_train)
 			train_loss = self.__cross_entropy_loss(P_train, Y_train)
 			train_costs.append(train_cost)
 			train_losses.append(train_loss)
 			
-			P_val = self.forward(X_val)
+			P_val = self.forward(Mx_val)
 			val_cost = self.__cost_function(P_val, Y_val)
 			val_loss = self.__cross_entropy_loss(P_val, Y_val)
 			val_costs.append(val_cost)
 			val_losses.append(val_loss)
 			
 			if X_val is not None and y_val is not None and y_train is not None:
-				val_accuracys.append(self.get_accuracy(X_val, y_val))
-				train_accuracys.append(self.get_accuracy(X_train, y_train))
+				val_accuracys.append(self.get_accuracy(Mx_val, y_val))
+				train_accuracys.append(self.get_accuracy(Mx_train, y_train))
 
-			
-			if(len(val_costs)  >= 2):
-				val_diffs.append(val_costs[-2]-val_costs[-1])
-				
 			pbar.set_postfix(loss = f"{round(val_loss, 4)}")
 
 		if not show_plots: 
