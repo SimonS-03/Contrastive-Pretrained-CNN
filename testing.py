@@ -255,5 +255,37 @@ def test_rotation():
 		plt.show()
 
 
+def test_augmentation():
+	"""Test mirroring data. """
+
+	# Load a batch of training data
+	cifar_dir = 'Datasets/cifar-10-batches-py/'
+	with open(cifar_dir + 'data_batch_1', 'rb') as fo:
+		dict = pickle.load(fo, encoding='bytes')
+
+	# Extract the image data and cast to float from the dict dictionary
+	X = dict[b'data'].astype(np.float64) / 255.0
+	X = X.transpose()
+	nn = X.shape[1]
+
+	# Reshape each image from a column vector to a 3d array
+	X_im = X.reshape((32, 32, 3, nn), order='F')
+	X_im = np.transpose(X_im, (1, 0, 2, 3))
+
+	X_aug = dataloader.Dataloader().augment_data(X_im)
+
+	x_jump = X_aug.shape[-1]//8
+
+	for j in range(7+1):
+		# Display the first 5 images
+		ni = 5
+		fig, axs = plt.subplots(1, 5, figsize=(10, 5))
+		for i in range(ni):
+			axs[i].imshow(X_aug[:, :, :, j*x_jump+i])
+		axs[i].axis('off')
+		plt.show()
+
+
+
 if __name__ == "__main__":
-	test_rotation()
+	test_augmentation()
