@@ -19,6 +19,15 @@ class lr_schedule:
         plt.ylabel("Learning Rate")
         plt.show()
 
+class constant_lr(lr_schedule):
+    def __init__(self, lr: float):
+        super().__init__()
+        self.lr = lr
+
+    def get_lr(self, iteration):
+        return self.lr
+
+
 
 class cyclic_lr(lr_schedule):
     def __init__(self, cycle_length: float, min_lr: float, max_lr: float):
@@ -41,7 +50,7 @@ class cyclic_increasing_lr(lr_schedule):
         self.min_lr = min_lr
         self.max_lr = max_lr
 
-    def get_increasing_cyclic_lr(self, iteration):
+    def get_lr(self, iteration):
         period_count = np.floor(np.log2(1+iteration/(2*self.starting_cycle_length)))
         current_period_length = 2*self.starting_cycle_length * 2**(period_count)
         period_start = 2*self.starting_cycle_length * (2**period_count - 1)
@@ -83,8 +92,8 @@ class AdamW(optimizer):
             for param in layer_grads.keys():
                 self.mt[layer][param] = self.b1*self.mt[layer][param] + (1-self.b1)*layer_grads[param]
                 self.vt[layer][param] = self.b2*self.vt[layer][param] + (1-self.b2)*layer_grads[param]**2
-                mt_hat = self.mt[layer][param] / (1-self.b1**iteration)
-                vt_hat = self.vt[layer][param] / (1-self.b2**iteration)
+                mt_hat = self.mt[layer][param] / (1-self.b1**iteration + self.eps)
+                vt_hat = self.vt[layer][param] / (1-self.b2**iteration + self.eps)
                 new_grads[layer][param] = (mt_hat / (np.sqrt(vt_hat) + self.eps) + 2*lam*params[layer][param])
 
         return new_grads

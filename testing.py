@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 import mlp, cnn, convolution, dataloader
-
+from utils import *
 
 def test_cyclic_lr() -> None:
 	"""Test the increasing learning rate. """
@@ -169,7 +169,6 @@ def test_overfit_small_sample():
 
 	f = Fs.shape[0]
 	nf = 2
-
 	n = 5
 
 	loader = dataloader.Dataloader()
@@ -183,10 +182,11 @@ def test_overfit_small_sample():
 	mlp_2 = mlp.MLP_Layer(input_dim=load_data['X1'].shape[1], output_dim=load_data['P'].shape[0], activation_function="softmax")
 
 	cnn_test = cnn.CNN([conv, mlp_1, mlp_2])
-
-	cnn_test.minibatchGD(X_train=Mx, Y_train=load_data['Y'][:, :n], y_train=load_data['y'][:n], num_epochs=1000, X_val=Mx, \
-					  Y_val=load_data['Y'][:, :n], y_val=load_data['y'][:n], batch_size=n, max_lr=0.001, min_lr=0.001)
 	
+	constant_schedule = cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-3, max_lr=5e-2)
+	adamW_optim = AdamW()
+	cnn_test.minibatchGD(Mx_train=Mx, Y_train=load_data['Y'][:, :n], y_train=load_data['y'][:n], Mx_val=Mx, \
+					  Y_val=load_data['Y'][:, :n], y_val=load_data['y'][:n], schedule=constant_schedule, optim=adamW_optim, batch_size=5, max_num_epochs=200)
 
 def test_mirroring():
 	"""Test mirroring data. """
@@ -288,4 +288,4 @@ def test_augmentation():
 
 
 if __name__ == "__main__":
-	test_augmentation()
+	test_overfit_small_sample()

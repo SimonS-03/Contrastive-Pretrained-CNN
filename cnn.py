@@ -54,13 +54,7 @@ class CNN:
 		
 		reg = 0
 		for layer in self.layers:
-			if isinstance(layer, MLP_Layer):
-				cur_weights = layer.W
-			elif isinstance(layer, Conv_Layer):
-				cur_weights = layer.F
-			else:
-				raise ValueError("One layer is not MLP or Conv, the layer is: " + str(layer))
-
+			cur_weights = layer.W
 			reg += self.lam * np.sum(cur_weights**2)
 
 		return cross_entropy + reg
@@ -108,20 +102,17 @@ class CNN:
 				g_batch = g_batch.T.reshape((layer.n_p, layer.nf, batch_size), order='C')
 				g_sum = np.sum(g_batch, axis=(0, 2)).reshape((layer.nf, 1)) /batch_size
 				layer_input_T = np.transpose(layer_input, (1, 0, 2))
-				
-				grad = {}
-				dl_dF = np.einsum('ijn, jln ->il', layer_input_T, g_batch, optimize=True)/batch_size
-				grad["F"] = dl_dF
-				grad["b"] = g_sum
-				grads.append(grad)
+				dl_dW = np.einsum('ijn, jln ->il', layer_input_T, g_batch, optimize=True)/batch_size
+
 
 			elif isinstance(layer, MLP_Layer):
-				grad = {}
 				dl_dW = (g_batch.T @ layer_input.T)/batch_size
-				grad["W"] = dl_dW
 				g_sum = np.expand_dims(g_batch.sum(axis = 0), axis = 1) / batch_size
-				grad["b"] = g_sum
-				grads.append(grad)
+
+			grad = {}
+			grad["W"] = dl_dW
+			grad["b"] = g_sum
+			grads.append(grad)
 
 			# Weight reversal 
 			if isinstance(layer, Conv_Layer):
@@ -152,12 +143,10 @@ class CNN:
 			cur_layer.b -= grads[i]['b']
 
 
-	def minibatchGD(self, X_train, Y_train, y_train, X_val, Y_val, y_val, schedule: lr_schedule, optim: optimizer,
+	def minibatchGD(self, Mx_train, Y_train, y_train, Mx_val, Y_val, y_val, schedule: lr_schedule, optim: optimizer,
 					 max_num_epochs: int = 40, batch_size: int = 100, 
 					shuffle_set: bool = True, show_plots: bool = True):
 		""" Does end-to-end minibatch gradient descent with the given training data. Has options for """
-		Mx_train = self.dataloader.create_Mx(X_train) # Shape (n_p, filter_elements, n_images)
-		Mx_val = self.dataloader.create_Mx(X_val)
 
 		n_datapoints = Mx_train.shape[2]
 		num_minibatches = int(n_datapoints / batch_size)
@@ -175,7 +164,7 @@ class CNN:
 		val_cost = np.inf
 		
 		pbar = tqdm.tqdm(range(max_num_epochs))
-		update_step = 0
+		update_step = 1
 
 		for i in pbar:
 			#print(f"Started epoch {i}")
@@ -219,7 +208,7 @@ class CNN:
 			val_costs.append(val_cost)
 			val_losses.append(val_loss)
 			
-			if X_val is not None and y_val is not None and y_train is not None:
+			if Mx_val is not None and y_val is not None and y_train is not None:
 				val_accuracys.append(self.get_accuracy(Mx_val, y_val))
 				train_accuracys.append(self.get_accuracy(Mx_train, y_train))
 
