@@ -88,7 +88,7 @@ class CNN:
 		return np.mean(np.sum(-Y_batch*np.log(p), axis = 0))
 
 
-	def get_gradient(self, Mx_batch:np.ndarray, Y_batch:np.ndarray, P_batch:np.ndarray):
+	def get_gradient(self, Mx_batch:np.ndarray, Y_batch:np.ndarray, P_batch:np.ndarray) -> list[dict]:
 		"""Returns the gradient of the loss wrt weights and biases in a tuple. Will use self.s1 and self.h1
 		
 		Args:

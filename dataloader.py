@@ -1,5 +1,7 @@
 import numpy as np
 import pickle
+from datasets import load_dataset, load_from_disk
+import datasets
 import matplotlib.pyplot as plt
 
 class Dataloader:
@@ -83,6 +85,69 @@ class Dataloader:
             print("file does not seem to exist?")
             return None
         return data
+
+
+    def import_tiny_imagenet(self) -> None:
+        """USE ONLY ONCE! Import and save the tiny imagenet dataset."""
+
+        ds = load_dataset("zh-plus/tiny-imagenet")
+
+        ds.save_to_disk("Datasets/tiny_imagenet")
+
+    
+    def split_tiny_imagenet(self):
+        """USE ONLY ONCE! Split the tiny imagenet dataset into train, validation and test data. \
+            Ensures an equal proportion of labels in each set. """
+
+        ds = load_from_disk("Datasets/tiny_imagenet")
+
+        train_val_split = ds["train"].train_test_split(test_size=0.1, stratify_by_column="label", seed=42)
+
+        final_ds = datasets.DatasetDict({
+            'train': train_val_split['train'],
+            'val': train_val_split['test'],
+            'test': ds['valid']
+        })
+
+        print(final_ds)
+
+        final_ds.save_to_disk("Datasets/split_tiny_imagenet")
+    
+
+    def load_train_data(self) -> dict:
+        """Load the train and validation data from tiny imagenet. 
+        
+        Returns:
+            train_val_data (dict): Dictionary of the training and validation data and labels. 
+                - **'X_train'** (np.ndarray): The training data. (height, width, rgb, n_train)
+                - **'Y_train'** (np.ndarray): The one-hot training label matrix. (n_labels, n_train)
+                - **'y_train'** (np.ndarray): The training labels. (n_train,)
+                - **'X_val'** (np.ndarray): The validation data. (height, width, rgb, n_val)
+                - **'Y_val'** (np.ndarray): The one-hot validation label matrix. (n_labels, n_val)
+                - **'y_val'** (np.ndarray): The validation labels. (n_val,)"""
+
+        ds = load_from_disk("Datasets/tiny_imagenet")
+
+        n_classes = 200
+
+        train_val_data = {}
+
+        train_val_data['X_train'] = np.stack([np.array(img.convert('RGB')) for img in ds['train']['image']])
+        train_val_data['y_train'] = np.array(ds['train']['label'])
+        n_train = train_val_data['y_train'].size
+        Y_train = np.zeros((n_classes, n_train))
+        Y_train[train_val_data['y_train'], np.arange(n_train)] = 1
+        train_val_data['Y_train'] = Y_train
+
+        train_val_data['X_val'] = np.stack([np.array(img.convert('RGB')) for img in ds['valid']['image']])
+        train_val_data['y_val'] = np.array(ds['valid']['label'])
+        n_val = train_val_data['y_val'].size
+        Y_val = np.zeros((n_classes, n_val))
+        Y_val[train_val_data['y_val'], np.arange(n_val)] = 1
+        train_val_data['Y_val'] = Y_val
+
+        return train_val_data
+
 
     def load_dataset(self, file: str, folder: str = ""):
             """Tries to returns (X, Y, y) from dataset

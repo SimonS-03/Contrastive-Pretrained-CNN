@@ -286,6 +286,10 @@ def test_augmentation():
 		plt.show()
 
 
+def test_tiny_image():
+	"""Load some of the tiny images. """
+	pass
+
 
 if __name__ == "__main__":
-	test_augmentation()
+	test_overfit_small_sample()
