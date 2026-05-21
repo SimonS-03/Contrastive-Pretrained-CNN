@@ -125,7 +125,7 @@ def test_total_backward():
 	Mx = loader.create_Mx(X=X, filter_width=f, image_width=32)# (d/f^2, f^2*rgb, n)
 
 	conv = convolution.Conv_Layer(filter_width=f, nf=nf, activation_function="ReLu")
-	conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
+	conv.W = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
 
 	mlp_1 = mlp.MLP_Layer(input_dim=load_data['conv_flat'].shape[0], output_dim=load_data['X1'].shape[0], activation_function="ReLu")
 	mlp_1.W = load_data['W1']
