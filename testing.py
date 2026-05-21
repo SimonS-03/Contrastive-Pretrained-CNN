@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 import mlp, cnn, convolution, dataloader
-
+from utils import *
 
 def test_cyclic_lr() -> None:
 	"""Test the increasing learning rate. """
@@ -140,7 +140,7 @@ def test_total_backward():
 	Mx = loader.create_Mx(X=X, filter_width=f, image_width=32)# (d/f^2, f^2*rgb, n)
 
 	conv = convolution.Conv_Layer(filter_width=f, nf=nf, activation_function="ReLu")
-	conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
+	conv.W = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
 
 	mlp_1 = mlp.MLP_Layer(input_dim=load_data['conv_flat'].shape[0], output_dim=load_data['X1'].shape[0], activation_function="ReLu")
 	mlp_1.W = load_data['W1']
@@ -169,7 +169,6 @@ def test_overfit_small_sample():
 
 	f = Fs.shape[0]
 	nf = 2
-
 	n = 5
 
 	loader = dataloader.Dataloader()
@@ -183,10 +182,11 @@ def test_overfit_small_sample():
 	mlp_2 = mlp.MLP_Layer(input_dim=load_data['X1'].shape[1], output_dim=load_data['P'].shape[0], activation_function="softmax")
 
 	cnn_test = cnn.CNN([conv, mlp_1, mlp_2])
-
-	cnn_test.minibatchGD(X_train=Mx, Y_train=load_data['Y'][:, :n], y_train=load_data['y'][:n], num_epochs=1000, X_val=Mx, \
-					  Y_val=load_data['Y'][:, :n], y_val=load_data['y'][:n], batch_size=n, max_lr=0.001, min_lr=0.001)
 	
+	constant_schedule = cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-3, max_lr=5e-2)
+	adamW_optim = AdamW()
+	cnn_test.minibatchGD(Mx_train=Mx, Y_train=load_data['Y'][:, :n], y_train=load_data['y'][:n], Mx_val=Mx, \
+					  Y_val=load_data['Y'][:, :n], y_val=load_data['y'][:n], schedule=constant_schedule, optim=adamW_optim, batch_size=5, max_num_epochs=200)
 
 def test_mirroring():
 	"""Test mirroring data. """
