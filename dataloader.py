@@ -126,7 +126,7 @@ class Dataloader:
                 - **'Y_val'** (np.ndarray): The one-hot validation label matrix. (n_labels, n_val)
                 - **'y_val'** (np.ndarray): The validation labels. (n_val,)"""
 
-        ds = load_from_disk("Datasets/tiny_imagenet")
+        ds = load_from_disk("Datasets/split_tiny_imagenet")
 
         n_classes = 200
 
