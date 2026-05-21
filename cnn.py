@@ -3,21 +3,23 @@ import pickle
 import matplotlib.pyplot as plt
 import torch
 import tqdm
+from dataloader import Dataloader
 from convolution import Conv_Layer
 from mlp import MLP_Layer
+from utils import *
 
 class CNN:
-	def __init__(self, layers: list[Conv_Layer | MLP_Layer], lam: float = 0, seed:int=42):
-		"""Creates a linear classifier with 10 output classes.
-		Args:
-			layers: A list of either convolution-layers or mlp-layers, already initialized.
-			lam: The lambda used in L2 regularization of the layers during backward pass"""
-		self.layers = layers
-		self.lam = lam
-		self.rng = self.__initialize_seed(seed)
-
-
-	def __initialize_seed(self, seed:int) -> np.random._generator.Generator:
+    def __init__(self, layers: list[Conv_Layer | MLP_Layer], lam: float = 0, seed:int=42):
+        """Creates a linear classifier with 10 output classes.
+        Args:
+            layers: A list of either convolution-layers or mlp-layers, already initialized.
+            lam: The lambda used in L2 regularization of the layers during backward pass"""
+        self.layers = layers
+        self.lam = lam
+        self.dataloader = Dataloader()
+        self.rng = self.__initialize_seed(seed)
+    
+    	def __initialize_seed(self, seed:int) -> np.random._generator.Generator:
 		"""Initialize the random number generator. 
 		
 		Args:
@@ -34,26 +36,6 @@ class CNN:
 
 		return rng
 
-	
-	def get_cyclic_lr(self, min_lr, max_lr, cycle_length, iteration):
-		cycle_count = iteration // cycle_length
-		if cycle_count % 2 == 0: # Up-cycle
-			return min_lr + (max_lr-min_lr)*(iteration-cycle_count*cycle_length)/cycle_length
-		else: # Down-cycle
-			return max_lr - (max_lr-min_lr)*(iteration-cycle_count*cycle_length)/cycle_length
-	
-	def get_increasing_cyclic_lr(self, min_lr, max_lr, starting_cycle_length, iteration):
-		period_count = np.floor(np.log2(1+iteration/(2*starting_cycle_length)))
-		current_period_length = 2*starting_cycle_length * 2**(period_count)
-		period_start = 2*starting_cycle_length * (2**period_count - 1)
-
-		if iteration < (period_start + current_period_length/2): # Up-cycle
-			cycle_start = period_start
-			return min_lr + (max_lr-min_lr)*(iteration-cycle_start)/(current_period_length/2)
-		else: # Down-cycle
-			cycle_start = period_start + current_period_length/2
-			return max_lr - (max_lr-min_lr)*(iteration-cycle_start)/(current_period_length/2)
-	
 
 	def forward(self, Mx: np.ndarray = None):
 		"""Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)"""
@@ -129,14 +111,14 @@ class CNN:
 				
 				grad = {}
 				dl_dF = np.einsum('ijn, jln ->il', layer_input_T, g_batch, optimize=True)/batch_size
-				grad["F"] = dl_dF + 2*self.lam*layer.F
+				grad["F"] = dl_dF
 				grad["b"] = g_sum
 				grads.append(grad)
 
 			elif isinstance(layer, MLP_Layer):
 				grad = {}
 				dl_dW = (g_batch.T @ layer_input.T)/batch_size
-				grad["W"] = dl_dW + 2*self.lam*layer.W
+				grad["W"] = dl_dW
 				g_sum = np.expand_dims(g_batch.sum(axis = 0), axis = 1) / batch_size
 				grad["b"] = g_sum
 				grads.append(grad)
@@ -182,18 +164,24 @@ class CNN:
 			cur_layer.b -= grads[i]['b']
 
 
-	def minibatchGD(self, X_train, Y_train, y_train, X_val = None, Y_val = None, y_val = None, num_epochs: int = 40, batch_size: int = 100, 
-					min_lr: float = .001, max_lr:float=.001, n_s: int = 500, shuffle_set: bool = True, show_plots: bool = True):
-		n_datapoints = X_train.shape[2]
-		num_minibatches = int(n_datapoints / batch_size)
-		train_costs = []
-		train_losses = []
-		val_costs = []
-		val_losses = []
-		val_diffs = []
-		lr_decay_epochs = []
-		val_accuracys = []
-		train_accuracys = []
+    def minibatchGD(self, X_train, Y_train, y_train, X_val, Y_val, y_val, schedule: lr_schedule, optim: optimizer,
+                     max_num_epochs: int = 40, batch_size: int = 100, 
+                    shuffle_set: bool = True, show_plots: bool = True):
+        """ Does end-to-end minibatch gradient descent with the given training data. Has options for """
+        Mx_train = self.dataloader.create_Mx(X_train) # Shape (n_p, filter_elements, n_images)
+        Mx_val = self.dataloader.create_Mx(X_val)
+
+        n_datapoints = Mx_train.shape[2]
+        num_minibatches = int(n_datapoints / batch_size)
+
+        train_costs = []
+        train_losses = []
+        val_costs = []
+        val_losses = []
+        val_diffs = []
+        lr_decay_epochs = []
+        val_accuracys = []
+        train_accuracys = []
 
 		X_train_shuffled = X_train.copy()
 		Y_train_shuffled = Y_train.copy()

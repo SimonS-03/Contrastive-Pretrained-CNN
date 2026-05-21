@@ -20,7 +20,7 @@ class Conv_Layer:
 		rng.bit_generator.state = bit_gen(seed).state
 		self.rng = rng
 
-		self.F = rng.normal(loc=0, scale=np.sqrt(2/self.filter_entries), size=(self.filter_entries, self.nf)) 
+		self.W = rng.normal(loc=0, scale=np.sqrt(2/self.filter_entries), size=(self.filter_entries, self.nf)) 
 		"""Filters. (filter_entries, nf)"""
 
 		self.b = np.zeros(shape=(self.nf, 1))
@@ -35,7 +35,7 @@ class Conv_Layer:
 		n_patches = Mx.shape[0] # Mx has shape (n_patches, filter_entries, batch_size)
 		self.n_p = n_patches
 		
-		pre_act = np.einsum("ijn, jl -> iln", Mx, self.F, optimize=True) + self.b.reshape(1, self.nf, 1) #(np, nf, batch_size)
+		pre_act = np.einsum("ijn, jl -> iln", Mx, self.W, optimize=True) + self.b.reshape(1, self.nf, 1) #(np, nf, batch_size)
 		pre_act = pre_act.reshape((n_patches*self.nf, pre_act.shape[2]), order='C') # (n_p*n_f, batch_size)
 
 		act = None
