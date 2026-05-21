@@ -1,6 +1,6 @@
 import numpy as np
 from dataloader import Dataloader
-
+from utils import dropout
 
 class Conv_Layer:
 	"""Create a convolution layer. Initilization done with He init.
@@ -31,7 +31,7 @@ class Conv_Layer:
 
 		self.activation_function = activation_function
 	
-	def forward(self, Mx: np.ndarray) -> np.ndarray:
+	def forward(self, Mx: np.ndarray, dropout_prob: float) -> np.ndarray:
 		n_patches = Mx.shape[0] # Mx has shape (n_patches, filter_entries, batch_size)
 		self.n_p = n_patches
 		
@@ -45,8 +45,17 @@ class Conv_Layer:
 		else: # TODO: implement softmax?
 			raise ValueError("Activation function in layer not registered/implemented, returning None.")
 
-		self.h = act
-		return act
+		self.h = dropout(act, dropout_prob)
+		safety = 0
+		while(np.all(self.h == 0)):
+			self.h = dropout(act, dropout_prob)
+			safety += 1
+			if safety > 100:
+				print("Activation will be zero due to safety break in dropout loop!")
+				break
+
+		
+		return self.h
 			
 
 if __name__ == "__main__":
