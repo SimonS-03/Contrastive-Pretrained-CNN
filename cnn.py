@@ -104,7 +104,6 @@ class CNN:
 				layer_input_T = np.transpose(layer_input, (1, 0, 2))
 				dl_dW = np.einsum('ijn, jln ->il', layer_input_T, g_batch, optimize=True)/batch_size
 
-
 			elif isinstance(layer, MLP_Layer):
 				dl_dW = (g_batch.T @ layer_input.T)/batch_size
 				g_sum = np.expand_dims(g_batch.sum(axis = 0), axis = 1) / batch_size
@@ -125,8 +124,7 @@ class CNN:
 		return grads
 
 
-	def __back_pass(self, Mx_batch:np.ndarray, Y_batch:np.ndarray, P_batch:np.ndarray,
-				 lr: float, grads: list[dict[str, float]]) -> None:
+	def __back_pass(self, lr: float, grads: list[dict[str, float]]) -> None:
 		"""Updates the network based on the gradients. 
 		
 		Args:
@@ -189,6 +187,92 @@ class CNN:
 				grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
 				optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
 				
+				self.__back_pass(lr, optim_grads)
+				update_step += 1
+			
+
+			if not show_plots: # We only need the lists below for plots
+				continue
+
+			P_train = self.forward(Mx_train, dropout_prob=0)
+			train_cost = self.__cost_function(P_train, Y_train)
+			train_loss = self.__cross_entropy_loss(P_train, Y_train)
+			train_costs.append(train_cost)
+			train_losses.append(train_loss)
+			
+			P_val = self.forward(Mx_val, dropout_prob=0)
+			val_cost = self.__cost_function(P_val, Y_val)
+			val_loss = self.__cross_entropy_loss(P_val, Y_val)
+			val_costs.append(val_cost)
+			val_losses.append(val_loss)
+			
+			if Mx_val is not None and y_val is not None and y_train is not None:
+				val_accuracys.append(self.get_accuracy(Mx_val, y_val))
+				train_accuracys.append(self.get_accuracy(Mx_train, y_train))
+
+			pbar.set_postfix(loss = f"{round(val_loss, 4)}")
+
+		if not show_plots: 
+			return
+		
+		plt.plot(np.arange(i+1)*num_minibatches, train_costs, label = "Training Cost", color = "y")
+		plt.plot(np.arange(i+1)*num_minibatches, train_losses, label = "Training Loss", linestyle='--', color = "r")
+		plt.vlines(lr_decay_epochs, ymin = 1.5, ymax = 2, label = "Lr decay epochs")
+		plt.plot(np.arange(i+1)*num_minibatches, val_costs, label = "Validation Cost", color = "b")
+		plt.plot(np.arange(i+1)*num_minibatches, val_losses, label = "Validation Loss", linestyle = '--', color = "c")
+		plt.xlabel("Update step")
+		plt.legend()
+		plt.title(f"Train/val cost + loss, lam={self.lam}")
+		plt.show()
+
+		plt.title("Train/Val accuracy over epochs")
+		plt.plot(np.arange(i+1)*num_minibatches, val_accuracys, label="validation")
+		plt.plot(np.arange(i+1)*num_minibatches, train_accuracys, label="training")
+		plt.xlabel("Update step")
+		plt.legend()
+		plt.show()	
+
+	def contrastive_pretraining(self, Mx_train, Y_train, y_train, Mx_val, Y_val, y_val, schedule: lr_schedule, optim: optimizer,
+					 max_num_epochs: int = 40, batch_size: int = 100, 
+					shuffle_set: bool = True, show_plots: bool = True):
+		n_datapoints = Mx_train.shape[2]
+		num_minibatches = int(n_datapoints / batch_size)
+
+		train_costs = []
+		train_losses = []
+		val_costs = []
+		val_losses = []
+		lr_decay_epochs = []
+		val_accuracys = []
+		train_accuracys = []
+
+		Mx_train_shuffled = Mx_train.copy()
+		Y_train_shuffled = Y_train.copy()
+		val_cost = np.inf
+		
+		pbar = tqdm.tqdm(range(max_num_epochs))
+		update_step = 1
+
+		for i in pbar:
+			#print(f"Started epoch {i}")
+
+			permutation = self.rng.permutation(n_datapoints)
+			if shuffle_set:
+				Mx_train_shuffled = Mx_train_shuffled[:, :, permutation]
+
+			for j in range(num_minibatches):
+				#print(f"minibatch {j}")
+				batch_start = j*batch_size
+				batch_end = (j+1)*batch_size
+
+				Mx_batch = Mx_train_shuffled[:, :, batch_start:batch_end]
+				P_batch = self.forward(Mx_batch, dropout_prob=0.35)
+
+				lr = schedule.get_lr(update_step)
+				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
+				grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
+				optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
+				
 				self.__back_pass(Mx_batch, Y_batch, P_batch, lr, optim_grads)
 				update_step += 1
 			
@@ -232,8 +316,8 @@ class CNN:
 		plt.plot(np.arange(i+1)*num_minibatches, train_accuracys, label="training")
 		plt.xlabel("Update step")
 		plt.legend()
-		plt.show()
-
+		plt.show()	
+		
 	
 	def get_accuracy(self, X, y):
 		P = self.forward(X, dropout_prob=0) # (10, batch_size)

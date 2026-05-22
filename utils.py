@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import torch
 
 class lr_schedule:
     def __init__(self):
@@ -129,4 +130,16 @@ def dropout(activations: np.ndarray, prob: float):
 
     mask = np.random.rand(*activations.shape) >= prob
     return activations*mask / (1-prob)
+
+def dropout_torch(activations: torch.Tensor, prob: float):
+    if prob == 0:
+        return activations
+    elif prob == 1:
+        return torch.zeros_like(activations)
     
+
+    if prob > 1 or prob < 0:
+        raise ValueError(f"Dropout likelihood of {prob} is not in [0, 1]!")
+
+    mask = torch.rand(*activations.shape) >= prob
+    return activations*mask / (1-prob)
