@@ -1,4 +1,5 @@
-import numpy as np
+import torch
+import math
 import matplotlib.pyplot as plt
 
 class lr_schedule:
@@ -9,7 +10,7 @@ class lr_schedule:
         raise NotImplementedError("get_lr method not implemented in the lr-schedule!")
     
     def plot_lr(self, max_iterations):
-        its = np.arange(max_iterations)
+        its = torch.arange(max_iterations)
         lrs = []
         for i in its:
             lrs.append(self.get_lr(i))
@@ -51,7 +52,7 @@ class cyclic_increasing_lr(lr_schedule):
         self.max_lr = max_lr
 
     def get_lr(self, iteration):
-        period_count = np.floor(np.log2(1+iteration/(2*self.starting_cycle_length)))
+        period_count = math.floor(math.log2(1+iteration/(2*self.starting_cycle_length)))
         current_period_length = 2*self.starting_cycle_length * 2**(period_count)
         period_start = 2*self.starting_cycle_length * (2**period_count - 1)
 
@@ -94,7 +95,7 @@ class AdamW(optimizer):
                 self.vt[layer][param] = self.b2*self.vt[layer][param] + (1-self.b2)*layer_grads[param]**2
                 mt_hat = self.mt[layer][param] / (1-self.b1**iteration + self.eps)
                 vt_hat = self.vt[layer][param] / (1-self.b2**iteration + self.eps)
-                new_grads[layer][param] = (mt_hat / (np.sqrt(vt_hat) + self.eps) + 2*lam*params[layer][param])
+                new_grads[layer][param] = (mt_hat / (torch.sqrt(vt_hat) + self.eps) + 2*lam*params[layer][param])
 
         return new_grads
 
@@ -112,7 +113,7 @@ class Identity(optimizer):
         
         return new_grads
 
-def softmax(y_pred: np.matrix):
+def softmax(y_pred: torch.Tensor):
         # y_pred will have dimension (classes, n_imgs)
-        return np.exp(y_pred) / np.sum(np.exp(y_pred), axis = 0)
+        return torch.exp(y_pred) / torch.sum(torch.exp(y_pred), axis = 0)
     

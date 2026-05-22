@@ -1,5 +1,3 @@
-import numpy as np
-import pickle
 import matplotlib.pyplot as plt
 import torch
 import tqdm
@@ -19,7 +17,7 @@ class CNN:
 		self.dataloader = Dataloader()
 		self.rng = self.__initialize_seed(seed)
 	
-	def __initialize_seed(self, seed:int) -> np.random._generator.Generator:
+	def __initialize_seed(self, seed:int) -> torch.Generator:
 		"""Initialize the random number generator. 
 		
 		Args:
@@ -28,16 +26,14 @@ class CNN:
 		Returns:
 			rng (Generator): The random number generator. """
 		
-		rng = np.random.default_rng()
-		# get the BitGenerator used by default_rng
-		BitGen = type(rng.bit_generator)
-		# use the state from a fresh bit generator
-		rng.bit_generator.state = BitGen(seed).state
-
+		rng = torch.Generator()
+		
+		rng.manual_seed(seed)
+	
 		return rng
 
 
-	def forward(self, Mx: np.ndarray = None):
+	def forward(self, Mx: torch.Tensor = None):
 		"""Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)"""
 		x = Mx
 		for layer in self.layers:
@@ -45,7 +41,7 @@ class CNN:
 		return x
 
 
-	def __cost_function(self, p: np.matrix, Y_batch: np.matrix):
+	def __cost_function(self, p: torch.Tensor, Y_batch: torch.Tensor):
 		"""Calculated the mean cross-entropy loss of a set of 
 		predicted class probabilites"""
 		# both have dimensions (10, batch_size)
@@ -55,33 +51,33 @@ class CNN:
 		reg = 0
 		for layer in self.layers:
 			cur_weights = layer.W
-			reg += self.lam * np.sum(cur_weights**2)
+			reg += self.lam * torch.sum(cur_weights**2)
 
 		return cross_entropy + reg
 
 
-	def __cross_entropy_loss(self, p: np.matrix, Y_batch: np.matrix):
-		return np.mean(np.sum(-Y_batch*np.log(p), axis = 0))
+	def __cross_entropy_loss(self, p: torch.Tensor, Y_batch: torch.Tensor):
+		return torch.mean(torch.sum(-Y_batch*torch.log(p), axis = 0))
 
 
-	def get_gradient(self, Mx_batch:np.ndarray, Y_batch:np.ndarray, P_batch:np.ndarray) -> list[dict]:
+	def get_gradient(self, Mx_batch:torch.Tensor, Y_batch:torch.Tensor, P_batch:torch.Tensor) -> list[dict]:
 		"""Returns the gradient of the loss wrt weights and biases in a tuple. Will use self.s1 and self.h1
 		
 		Args:
-			Mx_batch (np.ndarray): The input data batch which was used for the current training batch. (n_filters, filter_size, batch_size)
-			Y_batch (np.ndarray): The output/class data batch which was used for the current training batch. (num_labels, batch_size)
-			P_batch (np.ndarray): The prediction probabilities for the current batch. (num_labels, batch_size)
+			Mx_batch (torch.Tensor): The input data batch which was used for the current training batch. (n_filters, filter_size, batch_size)
+			Y_batch (torch.Tensor): The output/class data batch which was used for the current training batch. (num_labels, batch_size)
+			P_batch (torch.Tensor): The prediction probabilities for the current batch. (num_labels, batch_size)
 			
 		Returns:
 			grads (list[dict]): List of dictionaries of the gradients of the weights and biases for each layer. \
 				Sorted from first to last layer. 
 			
 			Each dictionary in the list has the gradient of the weights (either **'W'** or **'F'**) and bias of one layer:
-				* **'W'** (np.ndarray): Gradient of the weights in the MLP. (local_output_dim, local_input_dim)
-				* **'F'** (np.ndarray): Gradient of the weights in the convolution. (local_output_dim, local_input_dim)
-				* **'b'** (np.ndarray): Gradient of the bias in one layer. (local_output_dim, 1)"""
+				* **'W'** (torch.Tensor): Gradient of the weights in the MLP. (local_output_dim, local_input_dim)
+				* **'F'** (torch.Tensor): Gradient of the weights in the convolution. (local_output_dim, local_input_dim)
+				* **'b'** (torch.Tensor): Gradient of the bias in one layer. (local_output_dim, 1)"""
 		
-		g_batch = -np.transpose(Y_batch-P_batch) # (batch_size, num_labels)
+		g_batch = -(Y_batch-P_batch).T # (batch_size, num_labels)
 		batch_size = g_batch.shape[0] # nbr points in batch
 		
 		grads = []
@@ -99,15 +95,15 @@ class CNN:
 
 			# Gradient calculation 
 			if isinstance(layer, Conv_Layer):
-				g_batch = g_batch.T.reshape((layer.n_p, layer.nf, batch_size), order='C')
-				g_sum = np.sum(g_batch, axis=(0, 2)).reshape((layer.nf, 1)) /batch_size
-				layer_input_T = np.transpose(layer_input, (1, 0, 2))
-				dl_dW = np.einsum('ijn, jln ->il', layer_input_T, g_batch, optimize=True)/batch_size
+				g_batch = g_batch.T.reshape(layer.n_p, layer.nf, batch_size)
+				g_sum = torch.sum(g_batch, axis=(0, 2)).reshape((layer.nf, 1)) /batch_size
+				layer_input_T = layer_input.permute(1, 0, 2)
+				dl_dW = torch.einsum('ijn, jln ->il', layer_input_T, g_batch)/batch_size
 
 
 			elif isinstance(layer, MLP_Layer):
 				dl_dW = (g_batch.T @ layer_input.T)/batch_size
-				g_sum = np.expand_dims(g_batch.sum(axis = 0), axis = 1) / batch_size
+				g_sum = g_batch.sum(axis = 0).unsqueeze(dim = 1) / batch_size
 
 			grad = {}
 			grad["W"] = dl_dW
@@ -119,20 +115,20 @@ class CNN:
 				pass
 			elif isinstance(layer, MLP_Layer):
 				g_batch = g_batch @ layer.W
-				g_sum = np.expand_dims(g_batch.sum(axis = 0), axis = 1)
+				g_sum = g_batch.sum(axis = 0).unsqueeze(dim = 1)
 		
 		grads.reverse()
 		return grads
 
 
-	def __back_pass(self, Mx_batch:np.ndarray, Y_batch:np.ndarray, P_batch:np.ndarray,
+	def __back_pass(self, Mx_batch:torch.Tensor, Y_batch:torch.Tensor, P_batch:torch.Tensor,
 				 lr: float, grads: list[dict[str, float]]) -> None:
 		"""Updates the network based on the gradients. 
 		
 		Args:
-			Mx_batch (np.ndarray): The input data batch which was used for the current training batch. (n_filters, filter_size, batch_size)
-			Y_batch (np.ndarray): The output/class data batch which was used for the current training batch. (num_labels, batch_size)
-			P_batch (np.ndarray): The prediction probabilities for the current batch. (num_labels, batch_size),
+			Mx_batch (torch.Tensor): The input data batch which was used for the current training batch. (n_filters, filter_size, batch_size)
+			Y_batch (torch.Tensor): The output/class data batch which was used for the current training batch. (num_labels, batch_size)
+			P_batch (torch.Tensor): The prediction probabilities for the current batch. (num_labels, batch_size),
 			lr: learning rate,
 			grads: list of dictionaries containign gradient for each parameter.
 			"""
@@ -159,9 +155,9 @@ class CNN:
 		val_accuracys = []
 		train_accuracys = []
 
-		Mx_train_shuffled = Mx_train.copy()
-		Y_train_shuffled = Y_train.copy()
-		val_cost = np.inf
+		Mx_train_shuffled = Mx_train.clone()
+		Y_train_shuffled = Y_train.clone()
+		val_cost = torch.inf
 		
 		pbar = tqdm.tqdm(range(max_num_epochs))
 		update_step = 1
@@ -169,7 +165,7 @@ class CNN:
 		for i in pbar:
 			#print(f"Started epoch {i}")
 
-			permutation = self.rng.permutation(n_datapoints)
+			permutation = torch.randperm(n_datapoints, generator=self.rng)
 			if shuffle_set:
 				Mx_train_shuffled = Mx_train_shuffled[:, :, permutation]
 				Y_train_shuffled = Y_train_shuffled[:, permutation]
@@ -212,24 +208,24 @@ class CNN:
 				val_accuracys.append(self.get_accuracy(Mx_val, y_val))
 				train_accuracys.append(self.get_accuracy(Mx_train, y_train))
 
-			pbar.set_postfix(loss = f"{round(val_loss, 4)}")
+			pbar.set_postfix(loss = f"{round(val_loss.item(), 4)}")
 
 		if not show_plots: 
 			return
 		
-		plt.plot(np.arange(i+1)*num_minibatches, train_costs, label = "Training Cost", color = "y")
-		plt.plot(np.arange(i+1)*num_minibatches, train_losses, label = "Training Loss", linestyle='--', color = "r")
+		plt.plot(torch.arange(i+1)*num_minibatches, train_costs, label = "Training Cost", color = "y")
+		plt.plot(torch.arange(i+1)*num_minibatches, train_losses, label = "Training Loss", linestyle='--', color = "r")
 		plt.vlines(lr_decay_epochs, ymin = 1.5, ymax = 2, label = "Lr decay epochs")
-		plt.plot(np.arange(i+1)*num_minibatches, val_costs, label = "Validation Cost", color = "b")
-		plt.plot(np.arange(i+1)*num_minibatches, val_losses, label = "Validation Loss", linestyle = '--', color = "c")
+		plt.plot(torch.arange(i+1)*num_minibatches, val_costs, label = "Validation Cost", color = "b")
+		plt.plot(torch.arange(i+1)*num_minibatches, val_losses, label = "Validation Loss", linestyle = '--', color = "c")
 		plt.xlabel("Update step")
 		plt.legend()
 		plt.title(f"Train/val cost + loss, lam={self.lam}")
 		plt.show()
 
 		plt.title("Train/Val accuracy over epochs")
-		plt.plot(np.arange(i+1)*num_minibatches, val_accuracys, label="validation")
-		plt.plot(np.arange(i+1)*num_minibatches, train_accuracys, label="training")
+		plt.plot(torch.arange(i+1)*num_minibatches, val_accuracys, label="validation")
+		plt.plot(torch.arange(i+1)*num_minibatches, train_accuracys, label="training")
 		plt.xlabel("Update step")
 		plt.legend()
 		plt.show()
@@ -237,25 +233,25 @@ class CNN:
 	
 	def get_accuracy(self, X, y):
 		P = self.forward(X) # (10, batch_size)
-		guesses = np.argmax(P, axis = 0)
+		guesses = torch.argmax(P, axis = 0).float()
 
-		corrects = np.isclose(guesses, y).astype(np.int64)
+		corrects = torch.isclose(guesses, y).float()
 
-		return np.sum(corrects) / P.shape[1]
+		return torch.sum(corrects) / P.shape[1]
 	
 	def display_accuracy_histogram(self, X, y):
 		P = self.forward(X) # (10, batch_size)
-		guesses = np.argmax(P, axis = 0)
-		corrects = np.isclose(guesses, y)
+		guesses = torch.argmax(P, axis = 0)
+		corrects = torch.isclose(guesses, y)
 
 		#print(corrects.shape)
 		#print(corrects)
 
-		class_corrects = np.array(y)[corrects]
+		class_corrects = torch.array(y)[corrects]
 		plt.hist(class_corrects)
 		plt.show()
 
-		return np.sum(corrects) / X.shape[1]
+		return torch.sum(corrects) / X.shape[1]
 
 
 if __name__ == "__main__":

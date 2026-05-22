@@ -1,4 +1,4 @@
-import numpy as np
+import torch
 
 class MLP_Layer:
 	"""One layer of an MLP. """
@@ -26,7 +26,7 @@ class MLP_Layer:
 		self.__initialize_model(input_dim=input_dim, output_dim=output_dim)
 	
 
-	def __initialize_seed(self, seed:int) -> np.random._generator.Generator:
+	def __initialize_seed(self, seed:int) -> torch.Generator:
 		"""Initialize the random number generator. 
 		
 		Args:
@@ -35,11 +35,9 @@ class MLP_Layer:
 		Returns:
 			rng (Generator): The random number generator. """
 		
-		rng = np.random.default_rng()
-		# get the BitGenerator used by default_rng
-		BitGen = type(rng.bit_generator)
-		# use the state from a fresh bit generator
-		rng.bit_generator.state = BitGen(seed).state
+		rng = torch.Generator()
+		
+		rng.manual_seed(seed)
 
 		return rng
 
@@ -51,27 +49,27 @@ class MLP_Layer:
 				input_dim (int): Dimension of input. 
 				output_dim (int): Dimension of output. """
 		
-		self.W = np.sqrt(2/(input_dim)) * self.rng.standard_normal(size = (output_dim, input_dim))
-		self.b = np.zeros((output_dim, 1))
+		self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim), generator=self.rng)
+		self.b = torch.zeros((output_dim, 1))
 
 
-	def forward(self, X:np.ndarray) -> np.ndarray:
+	def forward(self, X:torch.Tensor) -> torch.Tensor:
 		"""Returns p and intermediary activation values. 
 		
 		Args:
-			X (np.ndarray): The input data. (input_dim, n). 
+			X (torch.Tensor): The input data. (input_dim, n). 
 					
 		Returns:
-			output (np.ndarray): The output of the perceptron layer. (output_dim, n)"""
+			output (torch.Tensor): The output of the perceptron layer. (output_dim, n)"""
 
 		# Apply layer
 		s = self.W @ X + self.b # (output_dim, input_dim) x (input_dim, n) = (output_dim, n)
 		
 		if self.activation_function == "ReLu":
-			self.h = np.maximum(s, 0)
+			self.h = torch.relu(s)
 			return self.h
 		elif self.activation_function == "softmax":
-			self.h = np.exp(s) / np.sum(np.exp(s), axis=0)
+			self.h = torch.exp(s) / torch.sum(torch.exp(s), axis=0)
 			return self.h
 		else:
 			raise ValueError("No correct activation function given in the MLP. \
