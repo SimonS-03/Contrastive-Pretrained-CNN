@@ -146,7 +146,6 @@ def test_total_backward():
 
 
 def test_overfit_small_sample():
-
 	debug_file = 'Datasets/debug_info.npz'
 	load_data = np.load(debug_file)
 	X = torch.tensor(load_data['X']).float() # (d, n)
@@ -154,7 +153,7 @@ def test_overfit_small_sample():
 
 	f = Fs.shape[0]
 	nf = 2
-	n = 5
+	n = 100
 
 	loader = dataloader.Dataloader()
 	Mx = loader.create_Mx(X=X, filter_width=f, image_width=32)[:, :, :n]# (d/f^2, f^2*rgb, n)
@@ -168,10 +167,10 @@ def test_overfit_small_sample():
 
 	cnn_test = cnn.CNN([conv, mlp_1, mlp_2])
 	
-	constant_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-3, max_lr=5e-2)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-3, max_lr=5e-2)
 	adamW_optim = utils.AdamW()
 	cnn_test.minibatchGD(Mx_train=Mx, Y_train=torch.tensor(load_data['Y']).float()[:, :n], y_train=torch.tensor(load_data['y']).float()[:n], Mx_val=Mx, \
-					  Y_val=torch.tensor(load_data['Y']).float()[:, :n], y_val=torch.tensor(load_data['y']).float()[:n], schedule=constant_schedule, optim=adamW_optim, batch_size=5, max_num_epochs=200)
+					  Y_val=torch.tensor(load_data['Y']).float()[:, :n], y_val=torch.tensor(load_data['y']).float()[:n], schedule=cyclic_schedule, optim=adamW_optim, batch_size=5, max_num_epochs=200)
 
 def test_mirroring():
 	"""Test mirroring data. """

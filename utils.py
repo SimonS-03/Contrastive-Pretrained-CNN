@@ -116,4 +116,18 @@ class Identity(optimizer):
 def softmax(y_pred: torch.Tensor):
         # y_pred will have dimension (classes, n_imgs)
         return torch.exp(y_pred) / torch.sum(torch.exp(y_pred), axis = 0)
+
+
+def dropout(activations: np.ndarray, prob: float):
+    if prob == 0:
+        return activations.copy()
+    elif prob == 1:
+        return torch.zeros_like(activations)
+    
+
+    if prob > 1 or prob < 0:
+        raise ValueError(f"Dropout likelihood of {prob} is not in [0, 1]!")
+
+    mask = torch.random.rand(*activations.shape) >= prob
+    return activations*mask / (1-prob)
     

@@ -33,11 +33,11 @@ class CNN:
 		return rng
 
 
-	def forward(self, Mx: torch.Tensor = None):
+	def forward(self, Mx: torch.Tensor, dropout_prob:float):
 		"""Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)"""
 		x = Mx
 		for layer in self.layers:
-			x = layer.forward(x)
+			x = layer.forward(x, dropout_prob)
 		return x
 
 
@@ -177,7 +177,7 @@ class CNN:
 				batch_end = (j+1)*batch_size
 
 				Mx_batch = Mx_train_shuffled[:, :, batch_start:batch_end]
-				P_batch = self.forward(Mx_batch)
+				P_batch = self.forward(Mx_batch, dropout_prob=0.35)
 				Y_batch = Y_train_shuffled[:, batch_start:batch_end]
 
 				lr = schedule.get_lr(update_step)
@@ -192,13 +192,13 @@ class CNN:
 			if not show_plots: # We only need the lists below for plots
 				continue
 
-			P_train = self.forward(Mx_train)
+			P_train = self.forward(Mx_train, dropout_prob=0)
 			train_cost = self.__cost_function(P_train, Y_train)
 			train_loss = self.__cross_entropy_loss(P_train, Y_train)
 			train_costs.append(train_cost)
 			train_losses.append(train_loss)
 			
-			P_val = self.forward(Mx_val)
+			P_val = self.forward(Mx_val, dropout_prob=0)
 			val_cost = self.__cost_function(P_val, Y_val)
 			val_loss = self.__cross_entropy_loss(P_val, Y_val)
 			val_costs.append(val_cost)
@@ -232,7 +232,7 @@ class CNN:
 
 	
 	def get_accuracy(self, X, y):
-		P = self.forward(X) # (10, batch_size)
+		P = self.forward(X, dropout_prob=0) # (10, batch_size)
 		guesses = torch.argmax(P, axis = 0).float()
 
 		corrects = torch.isclose(guesses, y).float()
@@ -240,7 +240,7 @@ class CNN:
 		return torch.sum(corrects) / P.shape[1]
 	
 	def display_accuracy_histogram(self, X, y):
-		P = self.forward(X) # (10, batch_size)
+		P = self.forward(X, dropout_prob=0) # (10, batch_size)
 		guesses = torch.argmax(P, axis = 0)
 		corrects = torch.isclose(guesses, y)
 

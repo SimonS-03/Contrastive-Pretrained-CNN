@@ -1,5 +1,5 @@
 import torch
-
+from utils import dropout
 class MLP_Layer:
 	"""One layer of an MLP. """
 
@@ -53,7 +53,7 @@ class MLP_Layer:
 		self.b = torch.zeros((output_dim, 1))
 
 
-	def forward(self, X:torch.Tensor) -> torch.Tensor:
+	def forward(self, X:torch.Tensor, dropout_prob: float) -> torch.Tensor:
 		"""Returns p and intermediary activation values. 
 		
 		Args:
@@ -65,15 +65,30 @@ class MLP_Layer:
 		# Apply layer
 		s = self.W @ X + self.b # (output_dim, input_dim) x (input_dim, n) = (output_dim, n)
 		
+		act = None
 		if self.activation_function == "ReLu":
-			self.h = torch.relu(s)
-			return self.h
+			act = torch.relu(s)
 		elif self.activation_function == "softmax":
-			self.h = torch.exp(s) / torch.sum(torch.exp(s), axis=0)
+			act = torch.exp(s) / torch.sum(torch.exp(s), axis=0)
+			self.h = act
 			return self.h
 		else:
 			raise ValueError("No correct activation function given in the MLP. \
 					The activation function given was: " + self.activation_function)
+
+		if act is None:
+			raise ValueError("activation is None for some reason if MLP forward!")
+		
+		self.h = dropout(act, dropout_prob)
+		safety = 0
+		while(torch.all(self.h == 0)): # We dont want the entire activation to be zero!
+			self.h = dropout(act, dropout_prob)
+			safety += 1
+			if safety > 100:
+				print("Activation will be zero due to safety break in dropout loop!")
+				break
+		
+		return self.h
 
 
 
