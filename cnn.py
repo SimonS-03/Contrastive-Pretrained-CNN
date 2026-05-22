@@ -7,13 +7,16 @@ from mlp import MLP_Layer
 from utils import *
 
 class CNN:
-	def __init__(self, layers: list[Conv_Layer | MLP_Layer], lam: float = 0, seed:int=42):
+	def __init__(self, layers: list[Conv_Layer | MLP_Layer], lam: float = 0, dropout_prob:float=0, seed:int=42):
 		"""Creates a linear classifier with 10 output classes.
 		Args:
-			layers: A list of either convolution-layers or mlp-layers, already initialized.
-			lam: The lambda used in L2 regularization of the layers during backward pass"""
+			layers (list[Conv_Layer | MLP_Layer]): A list of either convolution-layers or mlp-layers, already initialized.
+			lam (float): The lambda used in L2 regularization of the layers during backward pass. 
+			dropout_prob (float): Probability of a node being turned off for each update step. 
+			seed (int): The seed for the random number generator. """
 		self.layers = layers
 		self.lam = lam
+		self.dropout_prob = dropout_prob
 		self.dataloader = Dataloader()
 		self.rng = self.__initialize_seed(seed)
 	
@@ -67,7 +70,7 @@ class CNN:
 			Mx_batch (torch.Tensor): The input data batch which was used for the current training batch. (n_filters, filter_size, batch_size)
 			Y_batch (torch.Tensor): The output/class data batch which was used for the current training batch. (num_labels, batch_size)
 			P_batch (torch.Tensor): The prediction probabilities for the current batch. (num_labels, batch_size)
-			
+
 		Returns:
 			grads (list[dict]): List of dictionaries of the gradients of the weights and biases for each layer. \
 				Sorted from first to last layer. 
@@ -91,7 +94,7 @@ class CNN:
 
 			# Activation function reversal
 			if layer.activation_function == "ReLu":
-				g_batch = g_batch * (layer.h > 0).T
+				g_batch = g_batch * (layer.h > 0).T / (1 - self.dropout_prob)
 
 			# Gradient calculation 
 			if isinstance(layer, Conv_Layer):
@@ -121,14 +124,10 @@ class CNN:
 		return grads
 
 
-	def __back_pass(self, Mx_batch:torch.Tensor, Y_batch:torch.Tensor, P_batch:torch.Tensor,
-				 lr: float, grads: list[dict[str, float]]) -> None:
+	def __back_pass(self, lr: float, grads: list[dict[str, float]]) -> None:
 		"""Updates the network based on the gradients. 
 		
 		Args:
-			Mx_batch (torch.Tensor): The input data batch which was used for the current training batch. (n_filters, filter_size, batch_size)
-			Y_batch (torch.Tensor): The output/class data batch which was used for the current training batch. (num_labels, batch_size)
-			P_batch (torch.Tensor): The prediction probabilities for the current batch. (num_labels, batch_size),
 			lr: learning rate,
 			grads: list of dictionaries containign gradient for each parameter.
 			"""
@@ -136,7 +135,7 @@ class CNN:
 		for i in range(len(grads)):
 			cur_layer = self.layers[i]
 			cur_layer.W -= lr * grads[i]['W']
-			cur_layer.b -= grads[i]['b']
+			cur_layer.b -= lr * grads[i]['b']
 
 
 	def minibatchGD(self, Mx_train, Y_train, y_train, Mx_val, Y_val, y_val, schedule: lr_schedule, optim: optimizer,
@@ -177,15 +176,15 @@ class CNN:
 				batch_end = (j+1)*batch_size
 
 				Mx_batch = Mx_train_shuffled[:, :, batch_start:batch_end]
-				P_batch = self.forward(Mx_batch, dropout_prob=0.35)
+				P_batch = self.forward(Mx_batch, self.dropout_prob)
 				Y_batch = Y_train_shuffled[:, batch_start:batch_end]
 
 				lr = schedule.get_lr(update_step)
 				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
-				grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
+				grads = self.get_gradient(Mx_batch, Y_batch, P_batch, )
 				optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
 				
-				self.__back_pass(Mx_batch, Y_batch, P_batch, lr, optim_grads)
+				self.__back_pass(lr, optim_grads)
 				update_step += 1
 			
 

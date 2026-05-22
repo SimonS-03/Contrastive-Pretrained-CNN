@@ -45,7 +45,7 @@ class Conv_Layer:
 
 		self.h = dropout(act, dropout_prob)
 		safety = 0
-		while(np.all(self.h == 0)):
+		while(torch.all(self.h == 0)):
 			self.h = dropout(act, dropout_prob)
 			safety += 1
 			if safety > 100:

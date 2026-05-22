@@ -276,4 +276,4 @@ def test_tiny_image():
 
 
 if __name__ == "__main__":
-	test_total_forward()
+	test_overfit_small_sample()

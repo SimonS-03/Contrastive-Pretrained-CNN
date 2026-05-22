@@ -53,7 +53,7 @@ class MLP_Layer:
 		self.b = torch.zeros((output_dim, 1))
 
 
-	def forward(self, X:torch.Tensor, dropout_prob: float) -> torch.Tensor:
+	def forward(self, X:torch.Tensor, dropout_prob: float=0) -> torch.Tensor:
 		"""Returns p and intermediary activation values. 
 		
 		Args:

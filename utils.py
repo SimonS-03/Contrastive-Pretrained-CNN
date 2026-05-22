@@ -118,9 +118,9 @@ def softmax(y_pred: torch.Tensor):
         return torch.exp(y_pred) / torch.sum(torch.exp(y_pred), axis = 0)
 
 
-def dropout(activations: np.ndarray, prob: float):
+def dropout(activations: torch.Tensor, prob: float):
     if prob == 0:
-        return activations.copy()
+        return activations.clone()
     elif prob == 1:
         return torch.zeros_like(activations)
     
@@ -128,6 +128,6 @@ def dropout(activations: np.ndarray, prob: float):
     if prob > 1 or prob < 0:
         raise ValueError(f"Dropout likelihood of {prob} is not in [0, 1]!")
 
-    mask = torch.random.rand(*activations.shape) >= prob
+    mask = torch.rand_like(activations) >= prob
     return activations*mask / (1-prob)
     
