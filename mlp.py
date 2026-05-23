@@ -49,8 +49,8 @@ class MLP_Layer:
 				input_dim (int): Dimension of input. 
 				output_dim (int): Dimension of output. """
 		
-		self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim), generator=self.rng)
-		self.b = torch.zeros((output_dim, 1))
+		self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim), generator=self.rng, requires_grad=True)
+		self.b = torch.zeros((output_dim, 1), requires_grad=True)
 
 
 	def forward(self, X:torch.Tensor, dropout_prob: float=0) -> torch.Tensor:
