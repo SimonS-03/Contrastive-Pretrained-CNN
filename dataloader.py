@@ -1,4 +1,6 @@
 import torch
+import numpy as np
+import time
 import pickle
 from datasets import load_dataset, load_from_disk
 import datasets
@@ -125,27 +127,40 @@ class Dataloader:
                 - **'X_val'** (torch.Tensor): The validation data. (height, width, rgb, n_val)
                 - **'Y_val'** (torch.Tensor): The one-hot validation label matrix. (n_labels, n_val)
                 - **'y_val'** (torch.Tensor): The validation labels. (n_val,)"""
-
         ds = load_from_disk("Datasets/split_tiny_imagenet")
-
+        
         n_classes = 200
 
         train_val_data = {}
 
-        train_val_data['X_train'] = torch.stack([torch.array(img.convert('RGB')) for img in ds['train']['image']])
-        train_val_data['y_train'] = torch.array(ds['train']['label'])
-        n_train = train_val_data['y_train'].size
-        Y_train = torch.zeros((n_classes, n_train))
-        Y_train[train_val_data['y_train'], torch.arange(n_train)] = 1
-        train_val_data['Y_train'] = Y_train
+        train_images = ds['train']['image']
+        height, width, rgb = np.array(train_images[0].convert('RGB')).shape
 
-        train_val_data['X_val'] = torch.stack([torch.array(img.convert('RGB')) for img in ds['valid']['image']])
-        train_val_data['y_val'] = torch.array(ds['valid']['label'])
-        n_val = train_val_data['y_val'].size
-        Y_val = torch.zeros((n_classes, n_val))
-        Y_val[train_val_data['y_val'], torch.arange(n_val)] = 1
-        train_val_data['Y_val'] = Y_val
+        # -- Train --
 
+        n_train = len(train_images)
+        X_train = torch.empty((height, width, rgb, n_train), dtype=torch.float32)
+        for i, img in enumerate(train_images):
+            X_train[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+        train_val_data['X_train'] = X_train
+        
+        train_val_data['y_train'] = torch.tensor(ds['train']['label'], dtype=torch.long)
+        
+        train_val_data['Y_train'] = torch.nn.functional.one_hot(train_val_data['y_train'], num_classes=n_classes)
+       
+        # -- Val --
+
+        val_images = ds['val']['image']
+        n_val = len(val_images)
+        X_val = torch.empty((height, width, rgb, n_val), dtype=torch.float32)
+        for i, img in enumerate(val_images):
+            X_val[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+        train_val_data['X_val'] = X_val
+        
+        train_val_data['y_val'] = torch.tensor(ds['val']['label'], dtype=torch.long)
+        
+        train_val_data['Y_val'] = torch.nn.functional.one_hot(train_val_data['y_val'], num_classes=n_classes)
+        
         return train_val_data
 
 
@@ -180,7 +195,20 @@ class Dataloader:
             axs[i].axis('off')
         plt.pause(0.1)
 
+    def show_tiny_images(self, X, n=5):
+        """Visualize some of the images from Tiny ImageNet. 
+        
+        Args:
+            X (torch.Tensor): The images. (height, width, rgb, n)"""
+        
+        X_im = X / 255.0
+        fig, axs = plt.subplots(1, 5, figsize=(10, 5))
+        for i in range(n):
+            axs[i].imshow(X_im[:, :, :, i])
+            axs[i].axis('off')
+        plt.show()
+
     def normalize(X: torch.Tensor):
         X_mean = torch.resize(torch.mean(X, axis = 1), (X.shape[0], 1))
         X_std = torch.resize(torch.std(X, axis = 1), (X.shape[0], 1))
-        return (X - X_mean) / X_std
+        return (X - X_mean) / X_std, X_mean, X_std
