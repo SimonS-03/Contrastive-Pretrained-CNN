@@ -272,8 +272,10 @@ def test_augmentation():
 
 def test_tiny_image():
 	"""Load some of the tiny images. """
-	pass
+	dataload = dataloader.Dataloader()
+	data = dataload.load_train_data()
+	dataload.show_tiny_images(data['X_train'])
 
 
 if __name__ == "__main__":
-	test_overfit_small_sample()
+	test_tiny_image()
