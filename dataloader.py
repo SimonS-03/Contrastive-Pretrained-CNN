@@ -73,8 +73,9 @@ class Dataloader:
         X = X.clone()
 
         X = torch.concat((X, self.get_mirrored_data(X)), axis=3)
-
-        return self.get_rotated_data(X)
+        X = self.get_rotated_data(X)
+        noise = torch.normal(mean=torch.zeros_like(X), std=torch.ones_like(X)*0.05)
+        return 
 
 
     def unpickle(self, file: str, folder: str):

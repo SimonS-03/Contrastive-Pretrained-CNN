@@ -229,7 +229,60 @@ class CNN:
 		plt.legend()
 		plt.show()
 
+	def contrastiveLearning(self, Mx_train: torch.Tensor, schedule: lr_schedule, optim: optimizer,
+					 max_num_epochs: int = 40, batch_size: int = 100, 
+					shuffle_set: bool = True, show_plots: bool = True):
+		""" Does contrastive self-supervised learning """
+
+		n_datapoints = Mx_train.shape[2]
+		num_minibatches = int(n_datapoints / batch_size)
+
+		train_costs = []
+
+		Mx_train_shuffled = Mx_train.clone()
+		Mx_aug1 = self.dataloader.augment_data(Mx_train)
+		pbar = tqdm.tqdm(range(max_num_epochs))
+		update_step = 1
+
+		for i in pbar:
+			#print(f"Started epoch {i}")
+
+			permutation = torch.randperm(n_datapoints, generator=self.rng)
+			if shuffle_set:
+				Mx_train_shuffled = Mx_train_shuffled[:, :, permutation]
 	
+			
+			for j in range(num_minibatches):
+				#print(f"minibatch {j}")
+				batch_start = j*batch_size
+				batch_end = (j+1)*batch_size
+
+				Mx_batch = Mx_train_shuffled[:, :, batch_start:batch_end]
+				P_batch = self.forward(Mx_batch, self.dropout_prob)
+
+				lr = schedule.get_lr(update_step)
+				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
+				#grads = self.get_gradient(Mx_batch, Y_batch, P_batch, )
+				optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
+				
+				self.__back_pass(lr, optim_grads)
+				update_step += 1
+			
+
+			if not show_plots: # We only need the lists below for plots
+				continue
+
+			P_train = self.forward(Mx_train, dropout_prob=0)
+			train_cost = self.__cost_function(P_train, Y_train)
+			train_loss = self.__cross_entropy_loss(P_train, Y_train)
+			train_costs.append(train_cost)
+
+
+			pbar.set_postfix(loss = f"{round(train_cost, 4)}")
+
+	def __get_contrastive_loss(self, rep_1: torch.Tensor, rep_2: torch.Tensor, positve_pair: bool) -> float:
+
+
 	def get_accuracy(self, X, y):
 		P = self.forward(X, dropout_prob=0) # (10, batch_size)
 		guesses = torch.argmax(P, axis = 0).float()
