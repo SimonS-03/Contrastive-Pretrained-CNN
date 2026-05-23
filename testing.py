@@ -277,5 +277,16 @@ def test_tiny_image():
 	dataload.show_tiny_images(data['X_train'])
 
 
+def test_augment_tiny():
+	"""Augment tiny images. """
+	dataload = dataloader.Dataloader()
+	data = dataload.load_train_data(print_progress=True)
+	X_mini = data['X_train'][..., :5]
+	X_mini = dataload.normalize(X_mini)
+	aug_X = dataload.augment_data(X_mini)
+	dataload.show_tiny_images(X_mini)
+	dataload.show_tiny_images(aug_X)
+
+
 if __name__ == "__main__":
-	test_tiny_image()
+	test_augment_tiny()
