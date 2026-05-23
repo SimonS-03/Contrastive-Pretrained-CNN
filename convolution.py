@@ -18,10 +18,10 @@ class Conv_Layer:
 		rng.manual_seed(seed)
 		self.rng = rng
 
-		self.W = torch.normal(mean=0, std=torch.math.sqrt(2/self.filter_entries), size=(self.filter_entries, self.nf), generator=rng) 
+		self.W = torch.normal(mean=0, std=torch.math.sqrt(2/self.filter_entries), size=(self.filter_entries, self.nf), generator=rng, requires_grad=True) 
 		"""Filters. (filter_entries, nf)"""
 
-		self.b = torch.zeros(size=(self.nf, 1))
+		self.b = torch.zeros(size=(self.nf, 1), requires_grad=True)
 		"""Filter bias. (filter_entries, nf)"""
 
 		self.h = None
