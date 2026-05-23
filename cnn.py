@@ -139,8 +139,9 @@ class CNN:
 
 		for i in range(len(grads)):
 			cur_layer = self.layers[i]
-			cur_layer.W -= lr * grads[i]['W']
-			cur_layer.b -= lr * grads[i]['b']
+			with torch.no_grad():
+				cur_layer.W -= lr * grads[i]['W']
+				cur_layer.b -= lr * grads[i]['b']
 
 
 	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
@@ -216,14 +217,14 @@ class CNN:
 			P_train = self.forward(Mx_train, dropout_prob=0)
 			train_cost = self.__cost_function(P_train, Y_train)
 			train_loss = self.__cross_entropy_loss(P_train, Y_train)
-			train_costs.append(train_cost)
-			train_losses.append(train_loss)
+			train_costs.append(train_cost.detach())
+			train_losses.append(train_loss.detach())
 			
 			P_val = self.forward(Mx_val, dropout_prob=0)
 			val_cost = self.__cost_function(P_val, Y_val)
 			val_loss = self.__cross_entropy_loss(P_val, Y_val)
-			val_costs.append(val_cost)
-			val_losses.append(val_loss)
+			val_costs.append(val_cost.detach())
+			val_losses.append(val_loss.detach())
 			
 			if Mx_val is not None and y_val is not None and y_train is not None:
 				val_accuracys.append(self.get_accuracy(Mx_val, y_val))
