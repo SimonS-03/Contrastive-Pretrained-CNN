@@ -1,4 +1,6 @@
+import torch
 import numpy as np
+import time
 import pickle
 from datasets import load_dataset, load_from_disk
 import datasets
@@ -8,73 +10,74 @@ class Dataloader:
     def __init__(self):
         pass
     
-    def create_Mx(self, X: np.ndarray, filter_width: int = 2, image_width: int = 32):
+    def create_Mx(self, X: torch.Tensor, filter_width: int = 2, image_width: int = 32):
         """
         Make the Mx representation of square images for use with convolutional filters.
         Args:
             filter_width: Width of square filter (in non-rgb direction)
             image_width: Width of square image in the space (in non-rgb direction)"""
         f = filter_width
-        X_ims = np.transpose(X.reshape((image_width, image_width, 3, X.shape[1]), order='F'), (1, 0, 2, 3))
+        X_ims = X.T.reshape(X.shape[1], 3, image_width, image_width).permute(2, 3, 1, 0)
         ni = X_ims.shape[3]
-        Mx = np.zeros(shape=((image_width//f)**2, f*f*3, ni))
+        Mx = torch.zeros(size=((image_width//f)**2, f*f*3, ni))
         for img_index in range(ni):
             img = X_ims[:, :, :, img_index]
             l = 0
             for i in range(32//f):
                 for j in range(32//f):
                     patch = img[i*f:i*f+f, j*f:j*f+f, :]
-                    Mx[l, :, img_index] = patch.reshape((1, f*f*3), order='C')
+                    Mx[l, :, img_index] = patch.reshape(1, f*f*3)
                     l += 1
         
         self.Mx = Mx
         return Mx
     
 
-    def get_mirrored_data(self, X:np.ndarray) -> np.ndarray:
+    def get_mirrored_data(self, X:torch.Tensor) -> torch.Tensor:
         """Mirrors the data horisontally (mirror line is vertical in the middle). 
         
         Args:
-            X (np.ndarray): The data to be mirrored. (height, width, rgb, n)
+            X (torch.Tensor): The data to be mirrored. (height, width, rgb, n)
             
         Returns:
-            X_mirror (np.ndarray): The mirrored data. (height, width, rgb, n)"""
+            X_mirror (torch.Tensor): The mirrored data. (height, width, rgb, n)"""
         
-        return np.flip(X.copy(), 1)
+        return torch.flip(X.clone(), [1])
     
 
-    def get_rotated_data(self, X:np.ndarray) -> np.ndarray:
+    def get_rotated_data(self, X:torch.Tensor) -> torch.Tensor:
         """Get all the rotations of the original data. 
         
         Args:
-            X (np.ndarray): The data to be mirrored. (height, width, rgb, n)
+            X (torch.Tensor): The data to be mirrored. (height, width, rgb, n)
             
         Returns:
-            X_rot (np.ndarray): The rotated data. (height, width, rgb, 4n)"""
+            X_rot (torch.Tensor): The rotated data. (height, width, rgb, 4n)"""
         
-        X_rot = X.copy()
+        X_rot = X.clone()
 
         for i in range(1, 3+1):
-            cur_X_rot = X.copy()
-            X_rot = np.concat((X_rot, np.rot90(cur_X_rot, i)), axis=3)
+            cur_X_rot = X.clone()
+            X_rot = torch.concat((X_rot, torch.rot90(cur_X_rot, i)), axis=3)
         
         return X_rot
 
 
-    def augment_data(self, X:np.ndarray) -> np.ndarray:
+    def augment_data(self, X:torch.Tensor) -> torch.Tensor:
         """Augment the data by rotating and flipping. 
         
         Args:
-            X (np.ndarray): The data to be augmented. (height, width, rgb, n)
+            X (torch.Tensor): The data to be augmented. (height, width, rgb, n)
             
         Returns:
-            X_aug (np.ndarray): The augmented data. (height, width, rgb, 8n)"""
+            X_aug (torch.Tensor): The augmented data. (height, width, rgb, 8n)"""
         
-        X = X.copy()
+        X = X.clone()
 
-        X = np.concat((X, self.get_mirrored_data(X)), axis=3)
-
-        return self.get_rotated_data(X)
+        X = torch.concat((X, self.get_mirrored_data(X)), axis=3)
+        X = self.get_rotated_data(X)
+        noise = torch.normal(mean=torch.zeros_like(X), std=torch.ones_like(X)*0.05)
+        return 
 
 
     def unpickle(self, file: str, folder: str):
@@ -119,33 +122,46 @@ class Dataloader:
         
         Returns:
             train_val_data (dict): Dictionary of the training and validation data and labels. 
-                - **'X_train'** (np.ndarray): The training data. (height, width, rgb, n_train)
-                - **'Y_train'** (np.ndarray): The one-hot training label matrix. (n_labels, n_train)
-                - **'y_train'** (np.ndarray): The training labels. (n_train,)
-                - **'X_val'** (np.ndarray): The validation data. (height, width, rgb, n_val)
-                - **'Y_val'** (np.ndarray): The one-hot validation label matrix. (n_labels, n_val)
-                - **'y_val'** (np.ndarray): The validation labels. (n_val,)"""
-
+                - **'X_train'** (torch.Tensor): The training data. (height, width, rgb, n_train)
+                - **'Y_train'** (torch.Tensor): The one-hot training label matrix. (n_labels, n_train)
+                - **'y_train'** (torch.Tensor): The training labels. (n_train,)
+                - **'X_val'** (torch.Tensor): The validation data. (height, width, rgb, n_val)
+                - **'Y_val'** (torch.Tensor): The one-hot validation label matrix. (n_labels, n_val)
+                - **'y_val'** (torch.Tensor): The validation labels. (n_val,)"""
         ds = load_from_disk("Datasets/split_tiny_imagenet")
-
+        
         n_classes = 200
 
         train_val_data = {}
 
-        train_val_data['X_train'] = np.stack([np.array(img.convert('RGB')) for img in ds['train']['image']])
-        train_val_data['y_train'] = np.array(ds['train']['label'])
-        n_train = train_val_data['y_train'].size
-        Y_train = np.zeros((n_classes, n_train))
-        Y_train[train_val_data['y_train'], np.arange(n_train)] = 1
-        train_val_data['Y_train'] = Y_train
+        train_images = ds['train']['image']
+        height, width, rgb = np.array(train_images[0].convert('RGB')).shape
 
-        train_val_data['X_val'] = np.stack([np.array(img.convert('RGB')) for img in ds['valid']['image']])
-        train_val_data['y_val'] = np.array(ds['valid']['label'])
-        n_val = train_val_data['y_val'].size
-        Y_val = np.zeros((n_classes, n_val))
-        Y_val[train_val_data['y_val'], np.arange(n_val)] = 1
-        train_val_data['Y_val'] = Y_val
+        # -- Train --
 
+        n_train = len(train_images)
+        X_train = torch.empty((height, width, rgb, n_train), dtype=torch.float32)
+        for i, img in enumerate(train_images):
+            X_train[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+        train_val_data['X_train'] = X_train
+        
+        train_val_data['y_train'] = torch.tensor(ds['train']['label'], dtype=torch.long)
+        
+        train_val_data['Y_train'] = torch.nn.functional.one_hot(train_val_data['y_train'], num_classes=n_classes)
+       
+        # -- Val --
+
+        val_images = ds['val']['image']
+        n_val = len(val_images)
+        X_val = torch.empty((height, width, rgb, n_val), dtype=torch.float32)
+        for i, img in enumerate(val_images):
+            X_val[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+        train_val_data['X_val'] = X_val
+        
+        train_val_data['y_val'] = torch.tensor(ds['val']['label'], dtype=torch.long)
+        
+        train_val_data['Y_val'] = torch.nn.functional.one_hot(train_val_data['y_val'], num_classes=n_classes)
+        
         return train_val_data
 
 
@@ -154,16 +170,16 @@ class Dataloader:
             Args:
                 file: the filename of the dataset-batch
                 folder: the folder that the file lies in from command lines perspective"""
-            dataset: np.matrix = self.unpickle(file, folder)
+            dataset: torch.Tensor = self.unpickle(file, folder)
             if dataset == None: 
                 raise ValueError("Could not load dataset, returning null...")
                 return None
             
-            X = dataset[b'data'].astype(np.float64) / 255
+            X = dataset[b'data'].astype(torch.float64) / 255
             X = X.transpose()
 
             y = dataset[b"labels"]
-            Y = np.eye(10)[y]
+            Y = torch.eye(10)[y]
             Y = Y.transpose()
 
             return (X, Y, y)
@@ -171,7 +187,7 @@ class Dataloader:
     
     def show_images(self, X, n=5):
         X_im = X.reshape((32, 32, 3, X.shape[1]), order='F')
-        X_im = np.transpose(X_im, (1, 0, 2, 3))
+        X_im = torch.transpose(X_im, (1, 0, 2, 3))
 
         
         fig, axs = plt.subplots(1, 5, figsize=(10, 5))
@@ -180,7 +196,20 @@ class Dataloader:
             axs[i].axis('off')
         plt.pause(0.1)
 
-    def normalize(X: np.matrix):
-        X_mean = np.resize(np.mean(X, axis = 1), (X.shape[0], 1))
-        X_std = np.resize(np.std(X, axis = 1), (X.shape[0], 1))
-        return (X - X_mean) / X_std
+    def show_tiny_images(self, X, n=5):
+        """Visualize some of the images from Tiny ImageNet. 
+        
+        Args:
+            X (torch.Tensor): The images. (height, width, rgb, n)"""
+        
+        X_im = X / 255.0
+        fig, axs = plt.subplots(1, 5, figsize=(10, 5))
+        for i in range(n):
+            axs[i].imshow(X_im[:, :, :, i])
+            axs[i].axis('off')
+        plt.show()
+
+    def normalize(X: torch.Tensor):
+        X_mean = torch.resize(torch.mean(X, axis = 1), (X.shape[0], 1))
+        X_std = torch.resize(torch.std(X, axis = 1), (X.shape[0], 1))
+        return (X - X_mean) / X_std, X_mean, X_std

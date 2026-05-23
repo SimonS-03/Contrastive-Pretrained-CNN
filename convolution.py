@@ -1,5 +1,4 @@
-import numpy as np
-from dataloader import Dataloader
+import torch
 from utils import dropout
 
 class Conv_Layer:
@@ -14,16 +13,15 @@ class Conv_Layer:
 		self.filter_entries = filter_width**2 * 3 # Square filter, 3 channels
 		self.n_p = None
 
-		rng = np.random.default_rng()
+		rng = torch.Generator()
 		seed = 42
-		bit_gen = type(rng.bit_generator)
-		rng.bit_generator.state = bit_gen(seed).state
+		rng.manual_seed(seed)
 		self.rng = rng
 
-		self.W = rng.normal(loc=0, scale=np.sqrt(2/self.filter_entries), size=(self.filter_entries, self.nf)) 
+		self.W = torch.normal(mean=0, std=torch.math.sqrt(2/self.filter_entries), size=(self.filter_entries, self.nf), generator=rng, requires_grad=True) 
 		"""Filters. (filter_entries, nf)"""
 
-		self.b = np.zeros(shape=(self.nf, 1))
+		self.b = torch.zeros(size=(self.nf, 1), requires_grad=True)
 		"""Filter bias. (filter_entries, nf)"""
 
 		self.h = None
@@ -31,12 +29,12 @@ class Conv_Layer:
 
 		self.activation_function = activation_function
 	
-	def forward(self, Mx: np.ndarray, dropout_prob: float) -> np.ndarray:
+	def forward(self, Mx: torch.Tensor, dropout_prob: float) -> torch.Tensor:
 		n_patches = Mx.shape[0] # Mx has shape (n_patches, filter_entries, batch_size)
 		self.n_p = n_patches
 		
-		pre_act = np.einsum("ijn, jl -> iln", Mx, self.W, optimize=True) + self.b.reshape(1, self.nf, 1) #(np, nf, batch_size)
-		pre_act = pre_act.reshape((n_patches*self.nf, pre_act.shape[2]), order='C') # (n_p*n_f, batch_size)
+		pre_act = torch.einsum("ijn, jl -> iln", Mx, self.W) + self.b.reshape(1, self.nf, 1) #(np, nf, batch_size)
+		pre_act = pre_act.reshape(n_patches*self.nf, pre_act.shape[2]) # (n_p*n_f, batch_size)
 
 		act = None
 		if self.activation_function == "ReLu": 
@@ -47,7 +45,7 @@ class Conv_Layer:
 
 		self.h = dropout(act, dropout_prob)
 		safety = 0
-		while(np.all(self.h == 0)):
+		while(torch.all(self.h == 0)):
 			self.h = dropout(act, dropout_prob)
 			safety += 1
 			if safety > 100:
