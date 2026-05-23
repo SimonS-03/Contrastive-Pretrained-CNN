@@ -32,7 +32,8 @@ def test_conv():
 	nf = 2
 
 	loader = dataloader.Dataloader()
-	cur_input = loader.create_Mx(X=X, filter_width=f, image_width=32)# (d/f^2, f^2*rgb, n)
+	X_ims = X.reshape(3, 32, 32, X.shape[-1]).permute(2, 1, 0, 3)
+	cur_input = loader.create_Mx(X=X_ims, filter_width=f)# (d/f^2, f^2*rgb, n)
 
 	cur_output = torch.tensor(load_data['conv_flat']).float()
 
@@ -88,7 +89,9 @@ def test_total_forward():
 	nf = 2
 
 	loader = dataloader.Dataloader()
-	Mx = loader.create_Mx(X=X, filter_width=f, image_width=32)# (d/f^2, f^2*rgb, n)
+	X = X.T
+	X_ims = X.reshape(X.shape[0], 3, 32, 32).permute(2, 3, 1, 0)
+	Mx = loader.create_Mx(X=X_ims, filter_width=f)# (d/f^2, f^2*rgb, n)
 
 	conv = convolution.Conv_Layer(filter_width=f, nf=nf, activation_function="ReLu")
 	conv.W = Fs.reshape(f*f*3, nf) # (f^2*rgb, nf)
@@ -103,7 +106,7 @@ def test_total_forward():
 
 	cnn_test = cnn.CNN([conv, mlp_1, mlp_2])
 
-	cnn_test.forward(Mx)
+	cnn_test.forward(Mx, dropout_prob=0)
 
 	print("conv diff:", torch.linalg.norm(conv.h - torch.tensor(load_data['conv_flat']).float()).item())
 	print("x1 diff:", torch.linalg.norm(mlp_1.h - torch.tensor(load_data['X1']).float()).item())
@@ -122,7 +125,9 @@ def test_total_backward():
 	nf = 2
 
 	loader = dataloader.Dataloader()
-	Mx = loader.create_Mx(X=X, filter_width=f, image_width=32)# (d/f^2, f^2*rgb, n)
+	X = X.T
+	X_ims = X.reshape(X.shape[0], 3, 32, 32).permute(2, 3, 1, 0)
+	Mx = loader.create_Mx(X=X_ims, filter_width=f)# (d/f^2, f^2*rgb, n)
 
 	conv = convolution.Conv_Layer(filter_width=f, nf=nf, activation_function="ReLu")
 	conv.W = Fs.reshape(f*f*3, nf) # (f^2*rgb, nf)
@@ -137,7 +142,7 @@ def test_total_backward():
 
 	cnn_test = cnn.CNN([conv, mlp_1, mlp_2])
 
-	P = cnn_test.forward(Mx)
+	P = cnn_test.forward(Mx, dropout_prob=0)
 
 	test_grads = cnn_test.get_gradient(Mx_batch=Mx, Y_batch=torch.tensor(load_data['Y']).float(), P_batch=P)
 
@@ -156,7 +161,8 @@ def test_overfit_small_sample():
 	n = 100
 
 	loader = dataloader.Dataloader()
-	Mx = loader.create_Mx(X=X, filter_width=f, image_width=32)[:, :, :n]# (d/f^2, f^2*rgb, n)
+	X = X.T
+	X_ims = X.reshape(X.shape[0], 3, 32, 32).permute(2, 3, 1, 0)
 
 	conv = convolution.Conv_Layer(filter_width=f, nf=nf, activation_function="ReLu")
 	#conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
@@ -169,7 +175,7 @@ def test_overfit_small_sample():
 	
 	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-3, max_lr=5e-2)
 	adamW_optim = utils.AdamW()
-	cnn_test.minibatchGD(Mx_train=Mx, Y_train=torch.tensor(load_data['Y']).float()[:, :n], y_train=torch.tensor(load_data['y']).float()[:n], Mx_val=Mx, \
+	cnn_test.minibatchGD(X_train=X_ims, Y_train=torch.tensor(load_data['Y']).float()[:, :n], y_train=torch.tensor(load_data['y']).float()[:n], X_val=X_ims, \
 					  Y_val=torch.tensor(load_data['Y']).float()[:, :n], y_val=torch.tensor(load_data['y']).float()[:n], schedule=cyclic_schedule, optim=adamW_optim, batch_size=5, max_num_epochs=200)
 
 def test_mirroring():
@@ -181,15 +187,13 @@ def test_mirroring():
 		dict = pickle.load(fo, encoding='bytes')
 
 	# Extract the image data and cast to float from the dict dictionary
-	X = dict[b'data'].astype(torch.float64) / 255.0
-	X = X.transpose()
-	nn = X.shape[1]
+	X = torch.tensor(dict[b'data']).float() / 255.0 # (n, rgb*height*width)
 
 	# Reshape each image from a column vector to a 3d array
-	X_im = X.reshape((32, 32, 3, nn), order='F')
-	X_im = torch.transpose(X_im, (1, 0, 2, 3))
+	X_im = X.reshape(X.shape[0], 3, 32, 32).permute(2, 3, 1, 0) # (n, rgb, height, width) -> (height, width, rgb, n)
 
-	X_mirror = dataloader.Dataloader().get_mirrored_data(X_im)
+	X_mirror = X_im.clone()
+	dataloader.Dataloader().mirror_data(X_mirror, mirror_prob=1)
 
 	# Display the first 5 images
 	ni = 5
@@ -288,5 +292,47 @@ def test_augment_tiny():
 	dataload.show_tiny_images(aug_X)
 
 
+def test_train_augment_tiny():
+	"""Augment tiny images. """
+	dataload = dataloader.Dataloader()
+	data = dataload.load_train_data(print_progress=True)
+	X_mini = data['X_train'][..., :5]
+	X_mini = dataload.normalize(X_mini)
+	aug_X = dataload.augment_data(X_mini)
+	dataload.show_tiny_images(X_mini)
+	dataload.show_tiny_images(aug_X)
+
+
+def test_Mx():
+	"""Test the new "get Mx". """
+
+
+	debug_file = 'Datasets/debug_info.npz'
+	load_data = np.load(debug_file)
+	X = torch.tensor(load_data['X']).float() # (d, n)
+	Fs = torch.tensor(load_data['Fs']).float() # (f, f, rgb, nf)
+
+	f = Fs.shape[0]
+
+	X = X.T
+	X_ims = X.reshape(X.shape[0], 3, 32, 32).permute(2, 3, 1, 0)
+	ni = X_ims.shape[3]
+	Mx = torch.zeros(size=((32//f)**2, f*f*3, ni))
+	for img_index in range(ni):
+		img = X_ims[:, :, :, img_index]
+		l = 0
+		for i in range(32//f):
+			for j in range(32//f):
+				patch = img[i*f:i*f+f, j*f:j*f+f, :]
+				Mx[l, :, img_index] = patch.reshape(1, f*f*3)
+				l += 1
+
+	loader = dataloader.Dataloader()
+
+	Mx_new = loader.create_Mx(X_ims, f)
+
+	print("Diff:", torch.linalg.norm(Mx - Mx_new).item())
+
+
 if __name__ == "__main__":
-	test_augment_tiny()
+	test_overfit_small_sample()

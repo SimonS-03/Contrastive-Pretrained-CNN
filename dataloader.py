@@ -13,24 +13,28 @@ class Dataloader:
         self.X_std:torch.Tensor = None
         """The standard deviation of the training data. (height, width, rgb, 1)"""
     
-    def create_Mx(self, X: torch.Tensor, filter_width: int = 2, image_width: int = 32):
+    def create_Mx(self, X: torch.Tensor, filter_width: int = 2) -> torch.Tensor:
         """
         Make the Mx representation of square images for use with convolutional filters.
         Args:
-            filter_width: Width of square filter (in non-rgb direction)
-            image_width: Width of square image in the space (in non-rgb direction)"""
+            X (torch.Tensor): The images to be turned into Mx. (height, width, rgb, n)
+            filter_width (int): Width of square filter (in non-rgb direction)
+            
+        Returns:
+            Mx (torch.Tensor): The Mx matrix. (width*height/f^2, rgb*f^2, n)"""
+        
+        height, width, rgb, n = X.shape
         f = filter_width
-        X_ims = X.T.reshape(X.shape[1], 3, image_width, image_width).permute(2, 3, 1, 0)
-        ni = X_ims.shape[3]
-        Mx = torch.zeros(size=((image_width//f)**2, f*f*3, ni))
-        for img_index in range(ni):
-            img = X_ims[:, :, :, img_index]
-            l = 0
-            for i in range(32//f):
-                for j in range(32//f):
-                    patch = img[i*f:i*f+f, j*f:j*f+f, :]
-                    Mx[l, :, img_index] = patch.reshape(1, f*f*3)
-                    l += 1
+
+        if (height % f != 0) or (width % f != 0):
+            raise ValueError("The height or width of the image isn't able to be divided by the filter. \
+                             The height of the image is " + str(height) + ", the width is " + str(width) + " and f is " + str(f))
+
+        X_blocks = X.reshape(height//f, f, width//f, f, rgb, n)
+
+        X_permuted = X_blocks.permute(0, 2, 1, 3, 4, 5)
+
+        Mx = X_permuted.reshape((height//f) * (width//f), rgb*f**2, n)
         
         self.Mx = Mx
         return Mx

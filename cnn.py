@@ -15,10 +15,15 @@ class CNN:
 			dropout_prob (float): Probability of a node being turned off for each update step. 
 			seed (int): The seed for the random number generator. """
 		self.layers = layers
+		"""All the neural network layers. """
 		self.lam = lam
+		"""The regularisation term. """
 		self.dropout_prob = dropout_prob
+		"""Probability of a node being turned off for each update step. """
 		self.dataloader = Dataloader()
+		"""The dataloader class for this CNN. """
 		self.rng = self.__initialize_seed(seed)
+		"""The random number generator for this CNN. """
 	
 	def __initialize_seed(self, seed:int) -> torch.Generator:
 		"""Initialize the random number generator. 
@@ -138,12 +143,26 @@ class CNN:
 			cur_layer.b -= lr * grads[i]['b']
 
 
-	def minibatchGD(self, Mx_train, Y_train, y_train, Mx_val, Y_val, y_val, schedule: lr_schedule, optim: optimizer,
-					 max_num_epochs: int = 40, batch_size: int = 100, 
+	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
+				 y_val:torch.Tensor, schedule: lr_schedule, optim: optimizer, max_num_epochs: int = 40, batch_size: int = 100, 
 					shuffle_set: bool = True, show_plots: bool = True):
-		""" Does end-to-end minibatch gradient descent with the given training data. Has options for """
+		""" Does end-to-end minibatch gradient descent with the given training data. 
+		
+		Args:
+			X_train (torch.Tensor): The training data. (height, width, rgb, n_train)
+			Y_train (torch.Tensor): The training labels as one hot vectors. (n_classes, n_train)
+			y_train (torch.Tensor): The training labels. (n_train,)
+			X_val (torch.Tensor): The validation data. (height, width, rgb, n_val)
+			Y_val (torch.Tensor): The validation labels as one hot vectors. (n_classes, n_val)
+			y_val (torch.Tensor): The validation labels. (n_val,)
+			schedule (lr_schedule): The learning rate schedule. 
+			optim (optimizer): The optimizer. 
+			max_num_epochs (int): Maximum number of epochs for the training. 
+			batch_size (int): The batch size for batch training. 
+			shuffle_set (bool): If the data set should be randomly shuffled at before each epoch. 
+			show_plots (bool): If plots of the training and validation loss, cost and accuracy should be displayed at the end. """
 
-		n_datapoints = Mx_train.shape[2]
+		n_datapoints = X_train.shape[3]
 		num_minibatches = int(n_datapoints / batch_size)
 
 		train_costs = []
@@ -154,8 +173,10 @@ class CNN:
 		val_accuracys = []
 		train_accuracys = []
 
-		Mx_train_shuffled = Mx_train.clone()
+		X_train_shuffled = X_train.clone()
 		Y_train_shuffled = Y_train.clone()
+		Mx_train = self.dataloader.create_Mx(X_train, filter_width=self.layers[0].filter_width)
+		Mx_val = self.dataloader.create_Mx(X_val, filter_width=self.layers[0].filter_width)
 		val_cost = torch.inf
 		
 		pbar = tqdm.tqdm(range(max_num_epochs))
@@ -166,7 +187,7 @@ class CNN:
 
 			permutation = torch.randperm(n_datapoints, generator=self.rng)
 			if shuffle_set:
-				Mx_train_shuffled = Mx_train_shuffled[:, :, permutation]
+				X_train_shuffled = X_train_shuffled[..., permutation]
 				Y_train_shuffled = Y_train_shuffled[:, permutation]
 	
 			
@@ -175,7 +196,8 @@ class CNN:
 				batch_start = j*batch_size
 				batch_end = (j+1)*batch_size
 
-				Mx_batch = Mx_train_shuffled[:, :, batch_start:batch_end]
+				X_batch = X_train_shuffled[..., batch_start:batch_end]
+				Mx_batch = self.dataloader.create_Mx(X=X_batch, filter_width=self.layers[0].filter_width)
 				P_batch = self.forward(Mx_batch, self.dropout_prob)
 				Y_batch = Y_train_shuffled[:, batch_start:batch_end]
 
