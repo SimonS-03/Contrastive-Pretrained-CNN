@@ -398,4 +398,4 @@ def test_contrastive_small_sample(load_saved: bool = False):
 
 
 if __name__ == "__main__":
-	test_contrastive_small_sample(load_saved=False)
+	test_train_augment_tiny()

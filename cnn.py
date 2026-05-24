@@ -329,7 +329,7 @@ class CNN:
 					#print(f"Mag of augmented batch 1 Mx: {aug_batch1.norm()}")
 					
 					params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
-					if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]["W"].norm()}")
+					if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]['W'].norm()}")
 					for param_set in params: # Zeroing gradients before loss calculation
 						param_set["W"].grad = None
 						param_set["b"].grad = None
