@@ -280,7 +280,7 @@ class CNN:
 				loss = self.__get_contrastive_loss(aug_batch1, aug_batch2, temp=0.1) # Choise of temp is based on report
 				loss.backward()
 				auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in pretraining_layers]
-				
+
 				optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 				lr = schedule.get_lr(update_step)
 				self.__back_pass(lr, optim_grads)

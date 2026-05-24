@@ -34,7 +34,6 @@ class Dataloader:
         
         self.Mx = Mx
         return Mx
-    
 
     def mirror_data(self, X:torch.Tensor, mirror_prob:float):
         """Mirrors the data horisontally (mirror line is vertical in the middle). It is done in place. 
