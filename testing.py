@@ -287,7 +287,7 @@ def test_augment_tiny():
 	data = dataload.load_train_data(print_progress=True)
 	X_mini = data['X_train'][..., :5]
 	X_mini = dataload.normalize(X_mini)
-	aug_X = dataload.augment_data(X_mini)
+	aug_X = dataload.augment_data(X_mini, flip_prob=0, rot_prob=0, noise_prob=1)
 	dataload.show_tiny_images(X_mini)
 	dataload.show_tiny_images(aug_X)
 
@@ -334,5 +334,35 @@ def test_Mx():
 	print("Diff:", torch.linalg.norm(Mx - Mx_new).item())
 
 
+def test_contrastive_small_sample():
+	
+	f = 4
+	nf = 160
+	hid_dim = 100
+	loader = dataloader.Dataloader()
+	data = loader.load_train_data(print_progress=True)
+	X_train = data["X_train"][..., :40000]
+	X_val = data["X_val"][..., :1000]
+	
+	X_train = loader.normalize(X_train)
+	X_val = loader.normalize(X_val, use_train_data=True)
+	
+	conv1 = convolution.Conv_Layer(filter_width=4, nf=nf, channels=3, activation_function="ReLu")
+	conv2 = convolution.Conv_Layer(filter_width=4, nf=nf, channels=nf, activation_function="ReLu")
+	loader.show_filters(conv1.W)
+	n_p = (X_train.shape[0]//(4*4))**2 # NEEDS TO BE UPDATED WHEN CONV LAYERS CHANGE
+	
+	mlp_1 = mlp.MLP_Layer(input_dim=n_p*nf, output_dim=hid_dim, activation_function="ReLu")
+	mlp_2 = mlp.MLP_Layer(input_dim=hid_dim, output_dim=200, activation_function="softmax")
+
+	cnn_test = cnn.CNN([conv1, conv2, mlp_1, mlp_2], lam=1e-3, dropout_prob=.3)
+	cnn_test.dataloader = loader
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=25, min_lr=1e-4, max_lr=1e-1)
+	adamW_optim = utils.AdamW()
+	
+	cnn_test.contrastiveLearning(X_train=X_train, \
+					schedule=cyclic_schedule, optim=adamW_optim, batch_size=256, max_num_epochs=10)
+	cnn_test.dataloader.show_filters(cnn_test.layers[0].W, freeze=True)
+
 if __name__ == "__main__":
-	test_overfit_small_sample()
+	test_augment_tiny()

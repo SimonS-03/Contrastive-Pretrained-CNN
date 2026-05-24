@@ -1,4 +1,5 @@
 import torch
+import torchvision.transforms as trans
 import numpy as np
 import time
 import pickle
@@ -12,7 +13,14 @@ class Dataloader:
         """The mean of the training data. (height, width, rgb, 1)"""
         self.X_std:torch.Tensor = None
         """The standard deviation of the training data. (height, width, rgb, 1)"""
-    
+        self.augmentations = trans.Compose([
+            trans.RandomResizedCrop(size=(64, 64), scale=(.5, 1), antialias=True),
+            trans.RandomCrop(10),
+            trans.RandomApply([
+                trans.ColorJitter(brightness=(0, 0.5), contrast=(0, 0.5), saturation=(0, 0.5), hue=(0, 0.5))]),
+            trans.RandomGrayscale(p=.2)
+        ])
+
     def create_Mx(self, X: torch.Tensor, filter_width: int = 2) -> torch.Tensor:
         """
         Make the Mx representation of square images for use with convolutional filters.
@@ -131,12 +139,15 @@ class Dataloader:
             X_aug (torch.Tensor): The augmented data. (height, width, rgb, n)"""
         
         X_aug = X.clone()
-
+        # Own augmentation implementations
         self.add_noise(X=X_aug, noise_prob=noise_prob, noise_std=noise_std)
-
         self.mirror_data(X=X_aug, mirror_prob=flip_prob)
-
         self.rotate_data(X=X_aug, rot_prob=rot_prob)
+
+        # Torchvision augmentation
+        X_aug_perm = X_aug.permute(3, 2, 0, 1)
+        self.augmentations(X_aug_perm)
+        X_aug = X_aug_perm.permute(2, 3, 1, 0)
 
         return X_aug
 
@@ -249,6 +260,26 @@ class Dataloader:
 
             return (X, Y, y)
 
+    def show_filters(self, F: torch.Tensor, freeze: bool = False):
+        F_visual = F.detach().clone()
+        nf = F.shape[1]
+        f = int(torch.math.sqrt(F.shape[0]/3))
+        min_val = torch.min(F_visual).item()
+        max_val = torch.max(F_visual).item()
+        F_visual = F_visual.reshape((f, f, 3, nf))
+
+        rows = 8
+        cols = 8
+        fig, axs = plt.subplots(cols, rows, figsize=(10, 5))
+        for i in range(rows*cols):
+            im = F_visual[..., i] - min_val
+            im /= (max_val-min_val + 1e-8)
+            axs[i // rows, i%rows].imshow(im)
+            axs[i // rows, i%rows].axis('off')
+        
+        if freeze: plt.show()
+        else:
+            plt.pause(0.1)
     
     def show_images(self, X, n=5):
         X_im = X.reshape((32, 32, 3, X.shape[1]), order='F')

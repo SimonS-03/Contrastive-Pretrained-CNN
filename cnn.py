@@ -5,7 +5,7 @@ from dataloader import Dataloader
 from convolution import Conv_Layer
 from mlp import MLP_Layer
 from utils import *
-
+import numpy as np
 class CNN:
 	def __init__(self, layers: list[Conv_Layer | MLP_Layer], lam: float = 0, dropout_prob:float=0, seed:int=42):
 		"""Creates a linear classifier with 10 output classes.
@@ -44,8 +44,22 @@ class CNN:
 	def forward(self, Mx: torch.Tensor, dropout_prob:float):
 		"""Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)"""
 		x = Mx
+		prev_Mx_format = Mx.shape
+		prev_layer = None
 		for layer in self.layers:
+			if prev_layer != None and isinstance(layer, Conv_Layer):
+				new_pixels = prev_Mx_format[0] # old nbr patches
+				old_nf = prev_layer.nf
+				
+				x = x.reshape(int(torch.math.sqrt(new_pixels)), int(torch.math.sqrt(new_pixels)), old_nf, prev_Mx_format[-1])
+				x = self.dataloader.create_Mx(x, layer.filter_width)
+				prev_Mx_format = x.shape
+
 			x = layer.forward(x, dropout_prob)
+			if torch.any(x.isnan()):
+				pass
+			prev_layer = layer
+			
 		return x
 
 
@@ -142,6 +156,8 @@ class CNN:
 			with torch.no_grad():
 				cur_layer.W -= lr * grads[i]['W']
 				cur_layer.b -= lr * grads[i]['b']
+				#print(f"Mag of W after back pass: {cur_layer.W.norm()}")
+				#print(f"Mag of b after back pass: {cur_layer.b.norm()}")
 
 
 	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
@@ -204,7 +220,7 @@ class CNN:
 
 				lr = schedule.get_lr(update_step)
 				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
-				grads = self.get_gradient(Mx_batch, Y_batch, P_batch, )
+				grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
 				optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
 				
 				self.__back_pass(lr, optim_grads)
@@ -254,10 +270,10 @@ class CNN:
 
 	def contrastiveLearning(self, X_train: torch.Tensor, schedule: lr_schedule, optim: optimizer,
 					 max_num_epochs: int = 40, batch_size: int = 100, 
-					shuffle_set: bool = True, show_plots: bool = True):
+					shuffle_set: bool = True, show_plots: bool = True, debug_logs: bool = False):
 		""" Does contrastive self-supervised learning """
 
-		n_datapoints = X_train.shape[1]
+		n_datapoints = X_train.shape[-1]
 		num_minibatches = int(n_datapoints / batch_size)
 
 		training_losses = []
@@ -265,61 +281,68 @@ class CNN:
 		X_train_shuffled = X_train.clone()
 		pbar = tqdm.tqdm(range(max_num_epochs))
 		update_step = 1
-
-		# We need a seperate head for the contrastive training
-		pretraining_layers = self.layers.copy()
-		normal_output_shape = pretraining_layers[-1].W.shape
-		pretraining_layers[-1] = MLP_Layer(input_dim=normal_output_shape[1], output_dim=normal_output_shape[0], activation_function="ReLu")
+		
+		
+		# Adding pretraining head
+		last_layer_output_shape = self.layers[-1].W.shape[1]
+		head_output_dim = 200
+		original_head = self.layers[-1]
+		pretraining_head = MLP_Layer(input_dim=last_layer_output_shape, output_dim=head_output_dim, activation_function="ReLu")
+		self.layers[-1] = pretraining_head
 
 		for i in pbar:
-			#print(f"Started epoch {i}")
+			if debug_logs: print(f"Started epoch {i}")
 
-			permutation = torch.randperm(n_datapoints, generator=self.rng)
+			permutation = torch.randperm(X_train.shape[-1], generator=self.rng)
 			if shuffle_set:
-				X_train_shuffled = X_train_shuffled[:, :, permutation]
+				X_train_shuffled = X_train_shuffled[..., permutation]
 	
 			epoch_loss = None
 			for j in range(num_minibatches):
 				#print(f"minibatch {j}")
-				
+				#print(f"Starting update step {update_step}")
 				batch_start = j*batch_size
 				batch_end = (j+1)*batch_size
 				
-				X_batch = X_train_shuffled[:, :, batch_start:batch_end]
-				aug_batch1 = self.dataloader.augment_data(X_batch)
-				aug_batch2 = self.dataloader.augment_data(X_batch)
+				X_batch = X_train_shuffled[..., batch_start:batch_end]
+				aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=.75, noise_prob=1)
+				aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=.2, noise_prob=1)
+				aug_batch1 = self.dataloader.create_Mx(aug_batch1, filter_width=self.layers[0].filter_width)
+				aug_batch2 = self.dataloader.create_Mx(aug_batch2, filter_width=self.layers[0].filter_width)
+				#print(f"Mag of augmented batch 1 Mx: {aug_batch1.norm()}")
 				
-				#aug_batch1 = self.dataloader.create_Mx(aug_batch1, filter_width=self.layers[0].filter_width)
-				#aug_batch2 = self.dataloader.create_Mx(aug_batch2, filter_width=self.layers[0].filter_width)
-
-				params = [{"W": layer.W, "b": layer.b} for layer in pretraining_layers]
+				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
+				if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]["W"].norm()}")
 				for param_set in params: # Zeroing gradients before loss calculation
 					param_set["W"].grad = None
 					param_set["b"].grad = None
 				
-				aug_batch1 = self.forward(aug_batch1, dropout_prob=.3) # (10, batch_size)
-				aug_batch2 = self.forward(aug_batch2, dropout_prob=.3) # (10, batch_size)
-				
-				loss = self.__get_contrastive_loss(aug_batch1, aug_batch2, temp=0.1) # Choise of temp is based on report
+				output_batch1 = self.forward(aug_batch1, dropout_prob=.3) # (10, batch_size)
+				output_batch2 = self.forward(aug_batch2, dropout_prob=.3) # (10, batch_size)
+				if debug_logs: print(f"Output magnitude at step {update_step}: {torch.round(output_batch1.norm(), decimals=2)}")
+				loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=0.1) # Choise of temp is based on report
+				#print(f"Loss at step {update_step}: {torch.round(loss, decimals=2)}")
 				loss.backward()
-				auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in pretraining_layers]
+				with torch.no_grad():
+					auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.layers]
+					#print(f"Grad of input layer at step {update_step}: {torch.round(auto_grads[0]["W"].norm(), decimals=2)}")
+					#print(f"Grad of output layer at step {update_step}: {torch.round(auto_grads[-1]["W"].norm(), decimals=2)}")
+					optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
+					lr = schedule.get_lr(update_step)
+					self.__back_pass(lr, optim_grads)
 
-				optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
-				lr = schedule.get_lr(update_step)
-				self.__back_pass(lr, optim_grads)
-
-				epoch_loss = loss
+				epoch_loss = loss.detach().numpy()
 				update_step += 1
 			
 			training_losses.append(epoch_loss)
-			pbar.set_postfix(loss = f"Contrastive training loss: {round(training_losses[-1], 4)}")
+			pbar.set_postfix(loss = f"Contrastive training loss: {np.round(training_losses[-1], decimals=4)}")
 			
-
+		self.layers[-1] = original_head # Remove pretraining head
 		if not show_plots: # We only need the lists below for plots
 			return
 
 
-		plt.plot(torch.arange(len(training_losses))*num_minibatches, training_losses, linestyle='--', color = "r")
+		plt.plot(np.arange(len(training_losses))*num_minibatches, training_losses, linestyle='--', color = "r")
 		plt.xlabel("Update step")
 		plt.title("Contrastive Training loss")
 		plt.show()
@@ -334,14 +357,16 @@ class CNN:
 
 		sim_matrix = (aug_stack.T @ aug_stack) / temp
 		exp_sim = torch.exp(sim_matrix)
-		exp_sim *= (1-torch.eye(2*batch_N)) # Remove self-similarities
+		exp_sim_no_self = exp_sim * (1-torch.eye(2*batch_N)) # Remove self-similarities
 		
-		positive_sims = torch.diag(exp_sim, diagonal=batch_N)
+		positive_sims = torch.diag(exp_sim_no_self, diagonal=batch_N)
 		nominator = torch.cat([positive_sims, positive_sims])
-		denominator = torch.sum(exp_sim, dim=1)
+		denominator = torch.sum(exp_sim_no_self, dim=1)
 
 		return torch.mean(-torch.log(nominator/denominator))
 	
+
+
 	def __similarity(x1: torch.Tensor, x2: torch.Tensor) -> float:
 		return (x1.T @ x2) / (torch.norm(x1) * torch.norm(x2))
 
