@@ -78,8 +78,20 @@ class CNN:
 		return cross_entropy + reg
 
 
-	def __cross_entropy_loss(self, p: torch.Tensor, Y_batch: torch.Tensor):
-		return torch.mean(torch.sum(-Y_batch*torch.log(p), axis = 0))
+	def __cross_entropy_loss(self, p: torch.Tensor, Y_batch: torch.Tensor, eps:float=1e-10) -> float:
+		"""Calculates the cross entropy loss. 
+		
+		Args:
+			p (torch.Tensor): The calculated probabilites. (n_classes, n)
+			Y_batch (torch.Tensor): The actual one-hot labels. (n_classes, n)
+			eps (float): Small number to avoid overflow errors when doing log(p). """
+
+		logi = torch.log(p+eps)
+		multi = -Y_batch*logi
+		sumi = torch.sum(multi, axis = 0)
+		meany = torch.mean(sumi)
+
+		return meany
 
 
 	def get_gradient(self, Mx_batch:torch.Tensor, Y_batch:torch.Tensor, P_batch:torch.Tensor) -> list[dict]:
@@ -312,7 +324,7 @@ class CNN:
 				#print(f"Mag of augmented batch 1 Mx: {aug_batch1.norm()}")
 				
 				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
-				if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]["W"].norm()}")
+				if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]['W'].norm()}")
 				for param_set in params: # Zeroing gradients before loss calculation
 					param_set["W"].grad = None
 					param_set["b"].grad = None

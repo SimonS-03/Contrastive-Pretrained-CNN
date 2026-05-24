@@ -69,8 +69,10 @@ class MLP_Layer:
 		if self.activation_function == "ReLu":
 			act = torch.relu(s)
 		elif self.activation_function == "softmax":
-			act = torch.exp(s) / torch.sum(torch.exp(s), axis=0)
+			act = torch.softmax(s, dim=0)
 			self.h = act
+			if torch.any(self.h.isnan()):
+				raise ValueError("Some values are NaN after doing softmax. ")
 			return self.h
 		else:
 			raise ValueError("No correct activation function given in the MLP. \

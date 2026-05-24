@@ -235,8 +235,9 @@ class Dataloader:
 
         train_val_data['X_train'] = X_train
         
-        train_val_data['Y_train'] = torch.nn.functional.one_hot(train_val_data['y_train'], num_classes=n_classes)
-       
+        train_val_data['Y_train'] = torch.nn.functional.one_hot(train_val_data['y_train'], num_classes=n_classes).float().T
+        train_val_data['y_train'] = train_val_data['y_train'].float()
+
         # -- Val --
         if print_progress: print("Started with val")
         val_images = ds['val']['image']
@@ -248,7 +249,8 @@ class Dataloader:
         
         train_val_data['y_val'] = torch.tensor(ds['val']['label'], dtype=torch.long)
         
-        train_val_data['Y_val'] = torch.nn.functional.one_hot(train_val_data['y_val'], num_classes=n_classes)
+        train_val_data['Y_val'] = torch.nn.functional.one_hot(train_val_data['y_val'], num_classes=n_classes).float().T
+        train_val_data['y_val'] = train_val_data['y_val'].float()
         if print_progress: print("Finished loading all the data!")
         return train_val_data
 
