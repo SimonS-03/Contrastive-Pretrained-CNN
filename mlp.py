@@ -69,7 +69,11 @@ class MLP_Layer:
 		if self.activation_function == "ReLu":
 			act = torch.relu(s)
 		elif self.activation_function == "softmax":
-			act = torch.exp(s) / torch.sum(torch.exp(s), axis=0)
+			act = torch.softmax(s)
+			self.h = act
+			return self.h
+		elif self.activation_function == "linear":
+			act = s
 			self.h = act
 			return self.h
 		else:

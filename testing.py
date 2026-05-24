@@ -6,6 +6,7 @@ import torch
 import pickle
 import mlp, cnn, convolution, dataloader
 import utils
+import datetime
 
 def test_cyclic_lr() -> None:
 	"""Test the increasing learning rate. """
@@ -285,19 +286,21 @@ def test_tiny_image():
 def test_augment_tiny():
 	"""Augment tiny images. """
 	dataload = dataloader.Dataloader()
-	data = dataload.load_train_data(print_progress=True)
-	X_mini = data['X_train'][..., :5]
+	data = dataload.load_train_data(train_lim=10, print_progress=True)
+	X_mini = data['X_train']
 	X_mini = dataload.normalize(X_mini)
-	aug_X = dataload.augment_data(X_mini, flip_prob=0, rot_prob=0, noise_prob=1)
-	dataload.show_tiny_images(X_mini)
-	dataload.show_tiny_images(aug_X)
+	aug_X = dataload.augment_data(X_mini, flip_prob=.5, rot_prob=.5, noise_prob=1)
+	print(f"Non-augmented shape: {X_mini.shape}")
+	print(f"Augmented shape: {aug_X.shape}")
+	dataload.show_tiny_images(X_mini, n=10)
+	dataload.show_tiny_images(aug_X, n=10)
 
 
 def test_train_augment_tiny():
 	"""Augment tiny images. """
 	dataload = dataloader.Dataloader()
-	data = dataload.load_train_data(print_progress=True)
-	X_mini = data['X_train'][..., :5]
+	data = dataload.load_train_data(train_lim=10, print_progress=True)
+	X_mini = data['X_train']
 	X_mini = dataload.normalize(X_mini)
 	aug_X = dataload.augment_data(X_mini)
 	dataload.show_tiny_images(X_mini)
@@ -335,35 +338,44 @@ def test_Mx():
 	print("Diff:", torch.linalg.norm(Mx - Mx_new).item())
 
 
-def test_contrastive_small_sample():
-	
+def test_contrastive_small_sample(load_saved: bool = False):
 	f = 4
-	nf = 160
-	hid_dim = 100
+	nf = 64
+	hid_dim = 300
+	filename = f"Saved_Networks/f{f}_nf{nf}_hid{hid_dim}"
+
 	loader = dataloader.Dataloader()
-	data = loader.load_train_data(print_progress=True)
-	X_train = data["X_train"][..., :40000]
-	X_val = data["X_val"][..., :1000]
+	data = loader.load_train_data(train_lim=40000, print_progress=True)
+	X_train = data["X_train"]
+	X_val = data["X_val"]
 	
 	X_train = loader.normalize(X_train)
 	X_val = loader.normalize(X_val, use_train_data=True)
 	
 	conv1 = convolution.Conv_Layer(filter_width=4, nf=nf, channels=3, activation_function="ReLu")
 	conv2 = convolution.Conv_Layer(filter_width=4, nf=nf, channels=nf, activation_function="ReLu")
-	loader.show_filters(conv1.W)
+	#loader.show_filters(conv1.W)
 	n_p = (X_train.shape[0]//(4*4))**2 # NEEDS TO BE UPDATED WHEN CONV LAYERS CHANGE
 	
 	mlp_1 = mlp.MLP_Layer(input_dim=n_p*nf, output_dim=hid_dim, activation_function="ReLu")
 	mlp_2 = mlp.MLP_Layer(input_dim=hid_dim, output_dim=200, activation_function="softmax")
 
-	cnn_test = cnn.CNN([conv1, conv2, mlp_1, mlp_2], lam=1e-3, dropout_prob=.3)
+	cnn_test = cnn.CNN([conv1, conv2, mlp_1, mlp_2], lam=5e-4, dropout_prob=.3)
 	cnn_test.dataloader = loader
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=25, min_lr=1e-4, max_lr=1e-1)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=25, min_lr=1e-3, max_lr=1e-1)
 	adamW_optim = utils.AdamW()
 	
-	cnn_test.contrastiveLearning(X_train=X_train, \
-					schedule=cyclic_schedule, optim=adamW_optim, batch_size=256, max_num_epochs=10)
-	cnn_test.dataloader.show_filters(cnn_test.layers[0].W, freeze=True)
+	if load_saved: cnn_test.load_model(filename)
+
+	try: 
+		cnn_test.contrastiveLearning(X_train=X_train, schedule=cyclic_schedule, optim=adamW_optim, batch_size=256, max_num_epochs=40)
+		cnn_test.show_filters(cnn_test.layers[0].W, freeze=True)
+		cnn_test.save_model(filename)
+	except KeyboardInterrupt:
+		print("Training interupted, saving model...")
+		cnn_test.save_model(filename)
+
+
 
 if __name__ == "__main__":
-	test_augment_tiny()
+	test_contrastive_small_sample(load_saved=False)
