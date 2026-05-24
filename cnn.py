@@ -57,7 +57,7 @@ class CNN:
 
 			x = layer.forward(x, dropout_prob)
 			if torch.any(x.isnan()):
-				pass
+				raise ValueError("One item is NaN. ")
 			prev_layer = layer
 			
 		return x
@@ -75,7 +75,7 @@ class CNN:
 			cur_weights = layer.W
 			reg += self.lam * torch.sum(cur_weights**2)
 
-		return cross_entropy + reg
+		return cross_entropy + reg, cross_entropy
 
 
 	def __cross_entropy_loss(self, p: torch.Tensor, Y_batch: torch.Tensor, eps:float=1e-10) -> float:
@@ -86,12 +86,7 @@ class CNN:
 			Y_batch (torch.Tensor): The actual one-hot labels. (n_classes, n)
 			eps (float): Small number to avoid overflow errors when doing log(p). """
 
-		logi = torch.log(p+eps)
-		multi = -Y_batch*logi
-		sumi = torch.sum(multi, axis = 0)
-		meany = torch.mean(sumi)
-
-		return meany
+		return torch.mean(torch.sum(-Y_batch*torch.log(p+eps), axis = 0))
 
 
 	def get_gradient(self, Mx_batch:torch.Tensor, Y_batch:torch.Tensor, P_batch:torch.Tensor) -> list[dict]:
@@ -166,15 +161,15 @@ class CNN:
 		for i in range(len(grads)):
 			cur_layer = self.layers[i]
 			with torch.no_grad():
-				cur_layer.W -= lr * grads[i]['W']
-				cur_layer.b -= lr * grads[i]['b']
+				cur_layer.W.data -= lr * grads[i]['W']
+				cur_layer.b.data -= lr * grads[i]['b']
 				#print(f"Mag of W after back pass: {cur_layer.W.norm()}")
 				#print(f"Mag of b after back pass: {cur_layer.b.norm()}")
 
 
 	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
 				 y_val:torch.Tensor, schedule: lr_schedule, optim: optimizer, max_num_epochs: int = 40, batch_size: int = 100, 
-					shuffle_set: bool = True, show_plots: bool = True):
+					shuffle_set: bool = True, show_plots: bool = True, epoch_plot_period: int = 10):
 		""" Does end-to-end minibatch gradient descent with the given training data. 
 		
 		Args:
@@ -208,6 +203,10 @@ class CNN:
 		Mx_val = self.dataloader.create_Mx(X_val, filter_width=self.layers[0].filter_width)
 		val_cost = torch.inf
 		
+		if show_plots:
+			plt.ion() # Turn on interactive mode
+			fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
 		pbar = tqdm.tqdm(range(max_num_epochs))
 		update_step = 1
 
@@ -221,36 +220,37 @@ class CNN:
 	
 			
 			for j in range(num_minibatches):
-				#print(f"minibatch {j}")
-				batch_start = j*batch_size
-				batch_end = (j+1)*batch_size
+				with torch.no_grad():
+					#print(f"minibatch {j}")
+					batch_start = j*batch_size
+					batch_end = (j+1)*batch_size
 
-				X_batch = X_train_shuffled[..., batch_start:batch_end]
-				Mx_batch = self.dataloader.create_Mx(X=X_batch, filter_width=self.layers[0].filter_width)
-				P_batch = self.forward(Mx_batch, self.dropout_prob)
-				Y_batch = Y_train_shuffled[:, batch_start:batch_end]
+					X_batch = X_train_shuffled[..., batch_start:batch_end]
+					Mx_batch = self.dataloader.create_Mx(X=X_batch, filter_width=self.layers[0].filter_width)
+					P_batch = self.forward(Mx_batch, self.dropout_prob)
+					Y_batch = Y_train_shuffled[:, batch_start:batch_end]
+					#batch_cost = self.__cost_function(P_batch, Y_batch)
 
-				lr = schedule.get_lr(update_step)
-				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
-				grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
-				optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
-				
-				self.__back_pass(lr, optim_grads)
-				update_step += 1
+
+					lr = schedule.get_lr(update_step)
+					params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
+					grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
+					optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
+					
+					self.__back_pass(lr, optim_grads)
+					update_step += 1
 			
 
-			if not show_plots: # We only need the lists below for plots
+			if not show_plots or (i%epoch_plot_period != 0 and i != max_num_epochs-1): # We only need the lists below for plots
 				continue
 
 			P_train = self.forward(Mx_train, dropout_prob=0)
-			train_cost = self.__cost_function(P_train, Y_train)
-			train_loss = self.__cross_entropy_loss(P_train, Y_train)
+			train_cost, train_loss = self.__cost_function(P_train, Y_train)
 			train_costs.append(train_cost.detach())
 			train_losses.append(train_loss.detach())
 			
 			P_val = self.forward(Mx_val, dropout_prob=0)
-			val_cost = self.__cost_function(P_val, Y_val)
-			val_loss = self.__cross_entropy_loss(P_val, Y_val)
+			val_cost, val_loss = self.__cost_function(P_val, Y_val)
 			val_costs.append(val_cost.detach())
 			val_losses.append(val_loss.detach())
 			
@@ -259,26 +259,30 @@ class CNN:
 				train_accuracys.append(self.get_accuracy(Mx_train, y_train))
 
 			pbar.set_postfix(loss = f"{round(val_loss.item(), 4)}")
+			
+			nbr_entries = len(train_costs)
+			x_axis = torch.arange(nbr_entries) * epoch_plot_period
+			ax1.clear()
+			ax1.plot(x_axis, train_costs, label = "Training Cost", color = "y")
+			ax1.plot(x_axis, train_losses, label = "Training Loss", linestyle='--', color = "r")
+			ax1.plot(x_axis, val_costs, label = "Validation Cost", color = "b")
+			ax1.plot(x_axis, val_losses, label = "Validation Loss", linestyle = '--', color = "c")
+			ax1.set_xlabel("Epoch")
+			ax1.legend()
+			ax1.set_title(f"Train/val cost + loss, lam={self.lam}")
 
-		if not show_plots: 
-			return
-		
-		plt.plot(torch.arange(i+1)*num_minibatches, train_costs, label = "Training Cost", color = "y")
-		plt.plot(torch.arange(i+1)*num_minibatches, train_losses, label = "Training Loss", linestyle='--', color = "r")
-		plt.vlines(lr_decay_epochs, ymin = 1.5, ymax = 2, label = "Lr decay epochs")
-		plt.plot(torch.arange(i+1)*num_minibatches, val_costs, label = "Validation Cost", color = "b")
-		plt.plot(torch.arange(i+1)*num_minibatches, val_losses, label = "Validation Loss", linestyle = '--', color = "c")
-		plt.xlabel("Update step")
-		plt.legend()
-		plt.title(f"Train/val cost + loss, lam={self.lam}")
-		plt.show()
+			ax2.clear()
+			ax2.set_title("Train/Val accuracy over epochs")
+			ax2.plot(x_axis, val_accuracys, label="validation")
+			ax2.plot(x_axis, train_accuracys, label="training")
+			ax2.set_xlabel("Epoch")
+			ax2.legend()
 
-		plt.title("Train/Val accuracy over epochs")
-		plt.plot(torch.arange(i+1)*num_minibatches, val_accuracys, label="validation")
-		plt.plot(torch.arange(i+1)*num_minibatches, train_accuracys, label="training")
-		plt.xlabel("Update step")
-		plt.legend()
-		plt.show()
+			plt.pause(0.001)
+
+		if show_plots:
+			plt.ioff() # Turn off interactive mode
+			plt.show() # Keep the final plot window open when training finishes
 
 	def contrastiveLearning(self, X_train: torch.Tensor, schedule: lr_schedule, optim: optimizer,
 					 max_num_epochs: int = 40, batch_size: int = 100, 

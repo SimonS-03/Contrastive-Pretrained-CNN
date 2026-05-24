@@ -296,16 +296,17 @@ def test_augment_tiny():
 def test_train_augment_tiny():
 	"""Augment tiny images. """
 	dataload = dataloader.Dataloader()
-	data = dataload.load_train_data(print_progress=True, train_lim=5)
-	X_mini = data['X_train']
-	X_mini = dataload.normalize(X_mini)
+	data = dataload.load_train_data(print_progress=True, train_lim=1000)
+	X_train = data['X_train']
+	X_train = dataload.normalize(X_train)
+	X_val = dataload.normalize(data['X_val'], use_train_data=True)
 
 	f = 4
-	nf = 2
-	m = 50
+	nf = 100
+	m = 100
 	rgb = 3
 	n_classes = data['Y_train'].shape[0]
-	width = X_mini.shape[0]
+	width = X_train.shape[0]
 
 	conv = convolution.Conv_Layer(filter_width=f, nf=nf, channels=rgb, activation_function="ReLu")
 	#conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
@@ -314,13 +315,13 @@ def test_train_augment_tiny():
 
 	mlp_2 = mlp.MLP_Layer(input_dim=m, output_dim=n_classes, activation_function="softmax")
 
-	cnn_test = cnn.CNN([conv, mlp_1, mlp_2])
+	cnn_test = cnn.CNN([conv, mlp_1, mlp_2], lam=0.03, dropout_prob=0.4)
 	cnn_test.dataloader = dataload
 	
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-3, max_lr=5e-2)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-4, max_lr=1e-3)
 	adamW_optim = utils.AdamW()
-	cnn_test.minibatchGD(X_train=X_mini, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_mini, \
-					  Y_val=data['Y_train'], y_val=data['y_train'], schedule=cyclic_schedule, optim=adamW_optim, batch_size=5, max_num_epochs=200)
+	cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_val, \
+					  Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, batch_size=200, max_num_epochs=30, show_plots=True)
 
 
 def test_Mx():

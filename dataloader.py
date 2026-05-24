@@ -1,7 +1,7 @@
 import torch
 import torchvision.transforms as trans
 import numpy as np
-import time
+import gc
 import pickle
 from datasets import load_dataset, load_from_disk
 import datasets
@@ -251,6 +251,9 @@ class Dataloader:
         
         train_val_data['Y_val'] = torch.nn.functional.one_hot(train_val_data['y_val'], num_classes=n_classes).float().T
         train_val_data['y_val'] = train_val_data['y_val'].float()
+
+        del ds
+        gc.collect()
         if print_progress: print("Finished loading all the data!")
         return train_val_data
 
