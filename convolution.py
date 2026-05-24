@@ -9,9 +9,13 @@ class Conv_Layer:
 		activation_function: must be from {"ReLu"}"""
 	def __init__(self, filter_width: int, nf: int, activation_function: str):
 		self.filter_width = filter_width
+		"""Width of the filter. """
 		self.nf = nf
+		"""Number of filter. """
 		self.filter_entries = filter_width**2 * 3 # Square filter, 3 channels
+		"""Number of items in each filter. """
 		self.n_p = None
+		"""Number of filter patches per image. """
 
 		rng = torch.Generator()
 		seed = 42
@@ -30,6 +34,15 @@ class Conv_Layer:
 		self.activation_function = activation_function
 	
 	def forward(self, Mx: torch.Tensor, dropout_prob: float) -> torch.Tensor:
+		"""Does the forward pass.
+		
+		Args:
+			Mx (torch.Tensor): The Mx matrix. (width*height/f^2, rgb*f^2, n)
+			dropout_prob (float): Probability of a node being turned off for the forward pass.
+		
+		Returns:
+			h (torch.Tensor): The output from the layer. (width*height/f^2*n_f, batch_size)"""
+		
 		n_patches = Mx.shape[0] # Mx has shape (n_patches, filter_entries, batch_size)
 		self.n_p = n_patches
 		
