@@ -299,7 +299,7 @@ def test_augment_tiny():
 def test_train_augment_tiny():
 	"""Augment tiny images. """
 	dataload = dataloader.Dataloader()
-	data = dataload.load_train_data(print_progress=True, train_lim=1000)
+	data = dataload.load_train_data(print_progress=True, train_lim=10000, val_lim=1000)
 	X_train = data['X_train']
 	X_train = dataload.normalize(X_train)
 	X_val = dataload.normalize(data['X_val'], use_train_data=True)
@@ -318,13 +318,13 @@ def test_train_augment_tiny():
 
 	mlp_2 = mlp.MLP_Layer(input_dim=m, output_dim=n_classes, activation_function="softmax")
 
-	cnn_test = cnn.CNN([conv, mlp_1, mlp_2], lam=0.03, dropout_prob=0.4)
+	cnn_test = cnn.CNN([conv, mlp_1, mlp_2], lam=0.01, dropout_prob=0.4)
 	cnn_test.dataloader = dataload
 	
 	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-4, max_lr=1e-3)
 	adamW_optim = utils.AdamW()
 	cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_val, \
-					  Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, batch_size=200, max_num_epochs=30, show_plots=True)
+					  Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, batch_size=200, max_num_epochs=100, show_plots=True)
 
 
 def test_Mx():

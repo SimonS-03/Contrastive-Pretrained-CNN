@@ -168,7 +168,7 @@ class Dataloader:
         X_aug_perm = X_aug.permute(3, 2, 0, 1).clone()
         #augmented_images = [self.augmentations(X_aug_perm[i]) for i in range(X_aug_perm.shape[0])]
         #X_aug_perm = torch.stack(augmented_images)
-        X_aug_perm = self.augmentations(X_aug_perm) 
+        X_aug_perm = torch.stack([self.augmentations(X_aug_perm[i]) for i in range(X_aug_perm.shape[0])])
         #print(X_aug_perm.shape)
         X_aug = X_aug_perm.permute(2, 3, 1, 0).clone()
 
@@ -219,11 +219,13 @@ class Dataloader:
         final_ds.save_to_disk("Datasets/split_tiny_imagenet")
     
 
-    def load_train_data(self, train_lim:int | None=None,print_progress:bool=False) -> dict:
+    def load_train_data(self, train_lim:int | None=None, val_lim:int | None=None,print_progress:bool=False) -> dict:
         """Load the train and validation data from tiny imagenet. 
         
         Args:
             train_lim (int | None): None if all training data should be loaded, \
+                otherwise specifiy how much. 
+            val_lim (int | None): None if all validation data should be loaded, \
                 otherwise specifiy how much. 
             print_progress (bool): Set to true if you want prints showing the progress
 
@@ -272,12 +274,23 @@ class Dataloader:
         if print_progress: print("Started with val")
         val_images = ds['val']['image']
         n_val = len(val_images)
-        X_val = torch.empty((height, width, rgb, n_val), dtype=torch.float32)
-        for i, img in enumerate(val_images):
-            X_val[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
-        train_val_data['X_val'] = X_val
         
-        train_val_data['y_val'] = torch.tensor(ds['val']['label'], dtype=torch.long)
+        if val_lim is None:
+            X_val = torch.empty((height, width, rgb, n_val), dtype=torch.float32)
+            for i, img in enumerate(val_images):
+                X_val[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+            train_val_data['X_val'] = X_val
+        
+            train_val_data['y_val'] = torch.tensor(ds['val']['label'], dtype=torch.long)
+        else:
+            X_val = torch.empty((height, width, rgb, val_lim), dtype=torch.float32)
+            for i, img in enumerate(val_images):
+                if i >= val_lim:
+                    break
+                X_val[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+            train_val_data['X_val'] = X_val
+        
+            train_val_data['y_val'] = torch.tensor(ds['val']['label'][:val_lim], dtype=torch.long)
         
         train_val_data['Y_val'] = torch.nn.functional.one_hot(train_val_data['y_val'], num_classes=n_classes).float().T
         train_val_data['y_val'] = train_val_data['y_val'].float()

@@ -219,6 +219,8 @@ class CNN:
 				Y_train_shuffled = Y_train_shuffled[:, permutation]
 	
 			
+			total_train_cost = 0
+			total_train_loss = 0
 			for j in range(num_minibatches):
 				with torch.no_grad():
 					#print(f"minibatch {j}")
@@ -226,11 +228,14 @@ class CNN:
 					batch_end = (j+1)*batch_size
 
 					X_batch = X_train_shuffled[..., batch_start:batch_end]
-					Mx_batch = self.dataloader.create_Mx(X=X_batch, filter_width=self.layers[0].filter_width)
+					X_aug = self.dataloader.augment_data(X=X_batch)
+					Mx_batch = self.dataloader.create_Mx(X=X_aug, filter_width=self.layers[0].filter_width)
 					P_batch = self.forward(Mx_batch, self.dropout_prob)
 					Y_batch = Y_train_shuffled[:, batch_start:batch_end]
-					#batch_cost = self.__cost_function(P_batch, Y_batch)
+					batch_cost, batch_loss = self.__cost_function(P_batch, Y_batch)
 
+					total_train_cost += batch_cost
+					total_train_loss += batch_loss
 
 					lr = schedule.get_lr(update_step)
 					params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
@@ -244,19 +249,18 @@ class CNN:
 			if not show_plots or (i%epoch_plot_period != 0 and i != max_num_epochs-1): # We only need the lists below for plots
 				continue
 
-			P_train = self.forward(Mx_train, dropout_prob=0)
-			train_cost, train_loss = self.__cost_function(P_train, Y_train)
-			train_costs.append(train_cost.detach())
-			train_losses.append(train_loss.detach())
+			with torch.no_grad():
+				train_costs.append(total_train_cost.detach()/num_minibatches)
+				train_losses.append(total_train_loss.detach()/num_minibatches)
+				
+				P_val = self.forward(Mx_val, dropout_prob=0)
+				val_cost, val_loss = self.__cost_function(P_val, Y_val)
+				val_costs.append(val_cost.detach())
+				val_losses.append(val_loss.detach())
 			
-			P_val = self.forward(Mx_val, dropout_prob=0)
-			val_cost, val_loss = self.__cost_function(P_val, Y_val)
-			val_costs.append(val_cost.detach())
-			val_losses.append(val_loss.detach())
-			
-			if Mx_val is not None and y_val is not None and y_train is not None:
-				val_accuracys.append(self.get_accuracy(Mx_val, y_val))
-				train_accuracys.append(self.get_accuracy(Mx_train, y_train))
+				if Mx_val is not None and y_val is not None and y_train is not None:
+					val_accuracys.append(self.get_accuracy(Mx_val, y_val))
+					train_accuracys.append(self.get_accuracy(Mx_train, y_train))
 
 			pbar.set_postfix(loss = f"{round(val_loss.item(), 4)}")
 			
