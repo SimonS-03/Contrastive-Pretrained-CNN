@@ -14,9 +14,9 @@ class Dataloader:
         self.X_std:torch.Tensor = None
         """The standard deviation of the training data. (height, width, rgb, 1)"""
         self.augmentations = trans.Compose([
-            trans.RandomResizedCrop(size=(64, 64), scale=(.35, 1), antialias=True),
+            trans.RandomResizedCrop(size=(64, 64),  antialias=True),
             trans.ColorJitter(brightness=.5, contrast=.5, saturation=.5, hue=.1),
-            trans.RandomGrayscale(p=.25)
+            trans.RandomGrayscale(p=.1)
         ])
 
     def create_Mx(self, X: torch.Tensor, filter_width: int = 2) -> torch.Tensor:
@@ -168,7 +168,7 @@ class Dataloader:
         X_aug_perm = X_aug.permute(3, 2, 0, 1).clone()
         #augmented_images = [self.augmentations(X_aug_perm[i]) for i in range(X_aug_perm.shape[0])]
         #X_aug_perm = torch.stack(augmented_images)
-        X_aug_perm = self.augmentations(X_aug_perm) 
+        X_aug_perm = torch.stack([self.augmentations(X_aug_perm[i]) for i in range(X_aug_perm.shape[0])])
         #print(X_aug_perm.shape)
         X_aug = X_aug_perm.permute(2, 3, 1, 0).clone()
 
