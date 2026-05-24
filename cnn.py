@@ -5,7 +5,7 @@ from dataloader import Dataloader
 from convolution import Conv_Layer
 from mlp import MLP_Layer
 from utils import *
-
+import numpy as np
 class CNN:
 	def __init__(self, layers: list[Conv_Layer | MLP_Layer], lam: float = 0, dropout_prob:float=0, seed:int=42):
 		"""Creates a linear classifier with 10 output classes.
@@ -15,10 +15,15 @@ class CNN:
 			dropout_prob (float): Probability of a node being turned off for each update step. 
 			seed (int): The seed for the random number generator. """
 		self.layers = layers
+		"""All the neural network layers. """
 		self.lam = lam
+		"""The regularisation term. """
 		self.dropout_prob = dropout_prob
+		"""Probability of a node being turned off for each update step. """
 		self.dataloader = Dataloader()
+		"""The dataloader class for this CNN. """
 		self.rng = self.__initialize_seed(seed)
+		"""The random number generator for this CNN. """
 	
 	def __initialize_seed(self, seed:int) -> torch.Generator:
 		"""Initialize the random number generator. 
@@ -39,8 +44,22 @@ class CNN:
 	def forward(self, Mx: torch.Tensor, dropout_prob:float):
 		"""Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)"""
 		x = Mx
+		prev_Mx_format = Mx.shape
+		prev_layer = None
 		for layer in self.layers:
+			if prev_layer != None and isinstance(layer, Conv_Layer):
+				new_pixels = prev_Mx_format[0] # old nbr patches
+				old_nf = prev_layer.nf
+				
+				x = x.reshape(int(torch.math.sqrt(new_pixels)), int(torch.math.sqrt(new_pixels)), old_nf, prev_Mx_format[-1])
+				x = self.dataloader.create_Mx(x, layer.filter_width)
+				prev_Mx_format = x.shape
+
 			x = layer.forward(x, dropout_prob)
+			if torch.any(x.isnan()):
+				pass
+			prev_layer = layer
+			
 		return x
 
 
@@ -134,16 +153,33 @@ class CNN:
 
 		for i in range(len(grads)):
 			cur_layer = self.layers[i]
-			cur_layer.W -= lr * grads[i]['W']
-			cur_layer.b -= lr * grads[i]['b']
+			with torch.no_grad():
+				cur_layer.W -= lr * grads[i]['W']
+				cur_layer.b -= lr * grads[i]['b']
+				#print(f"Mag of W after back pass: {cur_layer.W.norm()}")
+				#print(f"Mag of b after back pass: {cur_layer.b.norm()}")
 
 
-	def minibatchGD(self, Mx_train, Y_train, y_train, Mx_val, Y_val, y_val, schedule: lr_schedule, optim: optimizer,
-					 max_num_epochs: int = 40, batch_size: int = 100, 
+	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
+				 y_val:torch.Tensor, schedule: lr_schedule, optim: optimizer, max_num_epochs: int = 40, batch_size: int = 100, 
 					shuffle_set: bool = True, show_plots: bool = True):
-		""" Does end-to-end minibatch gradient descent with the given training data. Has options for """
+		""" Does end-to-end minibatch gradient descent with the given training data. 
+		
+		Args:
+			X_train (torch.Tensor): The training data. (height, width, rgb, n_train)
+			Y_train (torch.Tensor): The training labels as one hot vectors. (n_classes, n_train)
+			y_train (torch.Tensor): The training labels. (n_train,)
+			X_val (torch.Tensor): The validation data. (height, width, rgb, n_val)
+			Y_val (torch.Tensor): The validation labels as one hot vectors. (n_classes, n_val)
+			y_val (torch.Tensor): The validation labels. (n_val,)
+			schedule (lr_schedule): The learning rate schedule. 
+			optim (optimizer): The optimizer. 
+			max_num_epochs (int): Maximum number of epochs for the training. 
+			batch_size (int): The batch size for batch training. 
+			shuffle_set (bool): If the data set should be randomly shuffled at before each epoch. 
+			show_plots (bool): If plots of the training and validation loss, cost and accuracy should be displayed at the end. """
 
-		n_datapoints = Mx_train.shape[2]
+		n_datapoints = X_train.shape[3]
 		num_minibatches = int(n_datapoints / batch_size)
 
 		train_costs = []
@@ -154,8 +190,10 @@ class CNN:
 		val_accuracys = []
 		train_accuracys = []
 
-		Mx_train_shuffled = Mx_train.clone()
+		X_train_shuffled = X_train.clone()
 		Y_train_shuffled = Y_train.clone()
+		Mx_train = self.dataloader.create_Mx(X_train, filter_width=self.layers[0].filter_width)
+		Mx_val = self.dataloader.create_Mx(X_val, filter_width=self.layers[0].filter_width)
 		val_cost = torch.inf
 		
 		pbar = tqdm.tqdm(range(max_num_epochs))
@@ -166,7 +204,7 @@ class CNN:
 
 			permutation = torch.randperm(n_datapoints, generator=self.rng)
 			if shuffle_set:
-				Mx_train_shuffled = Mx_train_shuffled[:, :, permutation]
+				X_train_shuffled = X_train_shuffled[..., permutation]
 				Y_train_shuffled = Y_train_shuffled[:, permutation]
 	
 			
@@ -175,13 +213,14 @@ class CNN:
 				batch_start = j*batch_size
 				batch_end = (j+1)*batch_size
 
-				Mx_batch = Mx_train_shuffled[:, :, batch_start:batch_end]
+				X_batch = X_train_shuffled[..., batch_start:batch_end]
+				Mx_batch = self.dataloader.create_Mx(X=X_batch, filter_width=self.layers[0].filter_width)
 				P_batch = self.forward(Mx_batch, self.dropout_prob)
 				Y_batch = Y_train_shuffled[:, batch_start:batch_end]
 
 				lr = schedule.get_lr(update_step)
 				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
-				grads = self.get_gradient(Mx_batch, Y_batch, P_batch, )
+				grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
 				optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
 				
 				self.__back_pass(lr, optim_grads)
@@ -194,14 +233,14 @@ class CNN:
 			P_train = self.forward(Mx_train, dropout_prob=0)
 			train_cost = self.__cost_function(P_train, Y_train)
 			train_loss = self.__cross_entropy_loss(P_train, Y_train)
-			train_costs.append(train_cost)
-			train_losses.append(train_loss)
+			train_costs.append(train_cost.detach())
+			train_losses.append(train_loss.detach())
 			
 			P_val = self.forward(Mx_val, dropout_prob=0)
 			val_cost = self.__cost_function(P_val, Y_val)
 			val_loss = self.__cross_entropy_loss(P_val, Y_val)
-			val_costs.append(val_cost)
-			val_losses.append(val_loss)
+			val_costs.append(val_cost.detach())
+			val_losses.append(val_loss.detach())
 			
 			if Mx_val is not None and y_val is not None and y_train is not None:
 				val_accuracys.append(self.get_accuracy(Mx_val, y_val))
@@ -317,10 +356,10 @@ class CNN:
 
 	def contrastiveLearning(self, X_train: torch.Tensor, schedule: lr_schedule, optim: optimizer,
 					 max_num_epochs: int = 40, batch_size: int = 100, 
-					shuffle_set: bool = True, show_plots: bool = True):
+					shuffle_set: bool = True, show_plots: bool = True, debug_logs: bool = False):
 		""" Does contrastive self-supervised learning """
 
-		n_datapoints = X_train.shape[1]
+		n_datapoints = X_train.shape[-1]
 		num_minibatches = int(n_datapoints / batch_size)
 
 		training_losses = []
@@ -328,61 +367,71 @@ class CNN:
 		X_train_shuffled = X_train.clone()
 		pbar = tqdm.tqdm(range(max_num_epochs))
 		update_step = 1
+		
+		
+		# Adding pretraining head
+		last_layer_output_shape = self.layers[-1].W.shape[1]
+		head_output_dim = 200
+		original_head = self.layers[-1]
+		pretraining_head = MLP_Layer(input_dim=last_layer_output_shape, output_dim=head_output_dim, activation_function="linear")
+		try:
+			self.layers[-1] = pretraining_head
 
-		# We need a seperate head for the contrastive training
-		pretraining_layers = self.layers.copy()
-		normal_output_shape = pretraining_layers[-1].W.shape
-		pretraining_layers[-1] = MLP_Layer(input_dim=normal_output_shape[1], output_dim=normal_output_shape[0], activation_function="ReLu")
+			for i in pbar:
+				if debug_logs: print(f"Started epoch {i}")
 
-		for i in pbar:
-			#print(f"Started epoch {i}")
+				permutation = torch.randperm(X_train.shape[-1], generator=self.rng)
+				if shuffle_set:
+					X_train_shuffled = X_train_shuffled[..., permutation]
+		
+				epoch_loss = None
+				for j in range(num_minibatches):
+					#print(f"minibatch {j}")
+					#print(f"Starting update step {update_step}")
+					batch_start = j*batch_size
+					batch_end = (j+1)*batch_size
+					
+					X_batch = X_train_shuffled[..., batch_start:batch_end]
+					aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=0, noise_prob=.5)
+					aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=0, noise_prob=1)
+					aug_batch1 = self.dataloader.create_Mx(aug_batch1, filter_width=self.layers[0].filter_width)
+					aug_batch2 = self.dataloader.create_Mx(aug_batch2, filter_width=self.layers[0].filter_width)
+					#print(f"Mag of augmented batch 1 Mx: {aug_batch1.norm()}")
+					
+					params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
+					if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]["W"].norm()}")
+					for param_set in params: # Zeroing gradients before loss calculation
+						param_set["W"].grad = None
+						param_set["b"].grad = None
+					
+					output_batch1 = self.forward(aug_batch1, dropout_prob=.3) # (10, batch_size)
+					output_batch2 = self.forward(aug_batch2, dropout_prob=.3) # (10, batch_size)
+					if debug_logs: print(f"Output magnitude at step {update_step}: {torch.round(output_batch1.norm(), decimals=2)}")
+					loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=0.1) # Choise of temp is based on report
+					#print(f"Loss at step {update_step}: {torch.round(loss, decimals=2)}")
+					loss.backward()
+					with torch.no_grad():
+						auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.layers]
+						#print(f"Grad of input layer at step {update_step}: {torch.round(auto_grads[0]["W"].norm(), decimals=2)}")
+						#print(f"Grad of output layer at step {update_step}: {torch.round(auto_grads[-1]["W"].norm(), decimals=2)}")
+						optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
+						lr = schedule.get_lr(update_step)
+						self.__back_pass(lr, optim_grads)
 
-			permutation = torch.randperm(n_datapoints, generator=self.rng)
-			if shuffle_set:
-				X_train_shuffled = X_train_shuffled[:, :, permutation]
-	
-			epoch_loss = None
-			for j in range(num_minibatches):
-				#print(f"minibatch {j}")
+					epoch_loss = loss.detach().numpy()
+					update_step += 1
 				
-				batch_start = j*batch_size
-				batch_end = (j+1)*batch_size
-				
-				X_batch = X_train_shuffled[:, :, batch_start:batch_end]
-				aug_batch1 = self.dataloader.augment_data(X_batch)
-				aug_batch2 = self.dataloader.augment_data(X_batch)
-				
-				#aug_batch1 = self.dataloader.create_Mx(aug_batch1, filter_width=self.layers[0].filter_width)
-				#aug_batch2 = self.dataloader.create_Mx(aug_batch2, filter_width=self.layers[0].filter_width)
-
-				params = [{"W": layer.W, "b": layer.b} for layer in pretraining_layers]
-				for param_set in params: # Zeroing gradients before loss calculation
-					param_set["W"].grad = None
-					param_set["b"].grad = None
-				
-				aug_batch1 = self.forward(aug_batch1, dropout_prob=.3) # (10, batch_size)
-				aug_batch2 = self.forward(aug_batch2, dropout_prob=.3) # (10, batch_size)
-				
-				loss = self.__get_contrastive_loss(aug_batch1, aug_batch2, temp=0.1) # Choise of temp is based on report
-				loss.backward()
-				auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in pretraining_layers]
-				
-				optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
-				lr = schedule.get_lr(update_step)
-				self.__back_pass(lr, optim_grads)
-
-				epoch_loss = loss
-				update_step += 1
-			
-			training_losses.append(epoch_loss)
-			pbar.set_postfix(loss = f"Contrastive training loss: {round(training_losses[-1], 4)}")
-			
-
+				self.show_filters(self.layers[0].W, freeze=False)
+				training_losses.append(epoch_loss)
+				pbar.set_postfix(loss = f"{training_losses[-1]:.4f}", filter_mag = f"{self.layers[0].W.norm().item():.4f}")
+		finally:
+			self.layers[-1] = original_head # Remove pretraining head
+		
 		if not show_plots: # We only need the lists below for plots
 			return
 
 
-		plt.plot(torch.arange(len(training_losses))*num_minibatches, training_losses, linestyle='--', color = "r")
+		plt.plot(np.arange(len(training_losses))*num_minibatches, training_losses, linestyle='--', color = "r")
 		plt.xlabel("Update step")
 		plt.title("Contrastive Training loss")
 		plt.show()
@@ -397,53 +446,18 @@ class CNN:
 
 		sim_matrix = (aug_stack.T @ aug_stack) / temp
 		exp_sim = torch.exp(sim_matrix)
-		exp_sim *= (1-torch.eye(2*batch_N)) # Remove self-similarities
+		exp_sim_no_self = exp_sim * (1-torch.eye(2*batch_N)) # Remove self-similarities
 		
-		positive_sims = torch.diag(exp_sim, diagonal=batch_N)
+		positive_sims = torch.diag(exp_sim_no_self, diagonal=batch_N)
 		nominator = torch.cat([positive_sims, positive_sims])
-		denominator = torch.sum(exp_sim, dim=1)
+		denominator = torch.sum(exp_sim_no_self, dim=1)
 
-		return torch.mean(-torch.log(nominator/denominator))
+		return torch.mean(-torch.log(nominator/denominator) + 1e-8)
 	
+
+
 	def __similarity(x1: torch.Tensor, x2: torch.Tensor) -> float:
 		return (x1.T @ x2) / (torch.norm(x1) * torch.norm(x2))
-
-
-
-	def __get_contrastive_loss_for(self, aug_set1: torch.Tensor, aug_set2: torch.Tensor, temp: float) -> torch.Tensor:
-		"""Returns the contrastive loss from paper in the report. """
-		loss_ij = torch.tensor(0)
-		loss_ji = torch.tensor(0)
-		N_batch = aug_set1.shape[1]
-
-		for img_idx in range(N_batch):
-			aug_img1 = aug_set1[:, img_idx]
-			aug_img2 = aug_set2[:, img_idx]
-
-			# Normalized Temperature scaled Cross Entropy
-			nom_ij= torch.exp(self.__similarity(aug_img1, aug_img2)/temp)
-			denom_ij = 0
-			nom_ji= torch.exp(self.__similarity(aug_img2, aug_img1)/temp)
-			denom_ji = 0
-			for i in range(aug_set1.shape[1]):
-				if i == img_idx: 
-					continue
-				neg1 = aug_set1[:, i]
-				neg2 = aug_set2[:, i]
-				denom_ij += torch.exp(self.__similarity(aug_img1, neg1)/temp)
-				denom_ij += torch.exp(self.__similarity(aug_img1, neg2)/temp)
-
-				denom_ji += torch.exp(self.__similarity(aug_img2, neg1)/temp)
-				denom_ji += torch.exp(self.__similarity(aug_img2, neg2)/temp)
-			
-			loss_ij += -torch.log(nom_ij/denom_ij)
-			loss_ji += -torch.log(nom_ji/denom_ji)
-		
-		return (loss_ij + loss_ji) / (2*N_batch)
-
-
-
-
 
 
 
@@ -468,7 +482,84 @@ class CNN:
 		plt.show()
 
 		return torch.sum(corrects) / X.shape[1]
+	
+	def save_model(self, filepath: str):
+		"""Saves the weights and biases of all layers to a file."""
+		model_state = []
+		for layer in self.layers:
+			# We use .detach().cpu() to safely grab the data without the computational graph
+			layer_state = {
+				"W": layer.W.detach().cpu().clone(),
+				"b": layer.b.detach().cpu().clone()
+			}
+			model_state.append(layer_state)
+		
+		torch.save(model_state, filepath)
+		print(f"Model successfully saved to {filepath}")
 
+	def load_model(self, filepath: str):
+		"""Loads weights and biases from a file into the initialized layers."""
+		try:
+			model_state = torch.load(filepath)
+		except:
+			print("No saved file found, returning...")
+			return
+		
+		if len(model_state) != len(self.layers):
+			raise ValueError("The loaded model has a different number of layers than the current model!")
+			
+		with torch.no_grad():
+			for layer, loaded_state in zip(self.layers, model_state):
+				# .copy_() overwrites the existing tensor data in-place safely
+				layer.W.copy_(loaded_state["W"])
+				layer.W.requires_grad = True
+				layer.b.copy_(loaded_state["b"])
+				layer.b.requires_grad = True
+				
+		print(f"Model successfully loaded from {filepath}")
+
+	
+	def show_filters(self, F: torch.Tensor, freeze: bool = False):
+		# 1. Initialize the figure and image objects ONLY ONCE
+		if not hasattr(self, 'filter_fig') or not plt.fignum_exists(self.filter_fig.number):
+			plt.ion() 
+			self.filter_fig, self.filter_axs = plt.subplots(8, 8, figsize=(10, 5))
+			plt.show(block=False)
+			self.filter_axs = self.filter_axs.flatten()
+			
+			# Create a list to store the actual Image objects
+			self.im_objects = [None] * len(self.filter_axs)
+
+		if not plt.fignum_exists(self.filter_fig.number):
+			return
+
+		F_visual = F.detach().clone()
+		nf = F.shape[1]
+		f = int(torch.math.sqrt(F.shape[0]/3))
+		max_abs = torch.max(torch.abs(F_visual)).item()
+		F_visual = F_visual.reshape((f, f, 3, nf))
+
+		num_to_show = min(64, nf)
+		
+		for i in range(num_to_show):
+			im = (F_visual[..., i] / (2 * max_abs + 1e-8)) + 0.5
+			im = torch.clamp(im, 0.0, 1.0).cpu().numpy()
+			
+			# 2. Update pixels instead of redrawing the whole plot!
+			if self.im_objects[i] is None:
+				# First time: draw the image and save the object
+				self.im_objects[i] = self.filter_axs[i].imshow(im)
+				self.filter_axs[i].axis('off')
+			else:
+				# Next epochs: just inject the new pixels! (Lightning fast)
+				self.im_objects[i].set_data(im)
+		
+		if freeze: 
+			plt.ioff()
+			plt.show()
+		else:
+			self.filter_fig.canvas.draw()
+			self.filter_fig.canvas.flush_events()
 
 if __name__ == "__main__":
 	pass

@@ -1,4 +1,5 @@
 import torch
+import torchvision.transforms.v2 as trans
 import numpy as np
 import time
 import pickle
@@ -8,76 +9,177 @@ import matplotlib.pyplot as plt
 
 class Dataloader:
     def __init__(self):
-        pass
-    
-    def create_Mx(self, X: torch.Tensor, filter_width: int = 2, image_width: int = 32):
+        self.X_mean:torch.Tensor = None
+        """The mean of the training data. (height, width, rgb, 1)"""
+        self.X_std:torch.Tensor = None
+        """The standard deviation of the training data. (height, width, rgb, 1)"""
+        self.augmentations = trans.Compose([
+            trans.RandomResizedCrop(size=(64, 64), scale=(.35, 1), antialias=True),
+            trans.ColorJitter(brightness=.5, contrast=.5, saturation=.5, hue=.1),
+            trans.RandomGrayscale(p=.25)
+        ])
+
+    def create_Mx(self, X: torch.Tensor, filter_width: int = 2) -> torch.Tensor:
         """
         Make the Mx representation of square images for use with convolutional filters.
         Args:
-            filter_width: Width of square filter (in non-rgb direction)
-            image_width: Width of square image in the space (in non-rgb direction)"""
+            X (torch.Tensor): The images to be turned into Mx. (height, width, rgb, n)
+            filter_width (int): Width of square filter (in non-rgb direction)
+            
+        Returns:
+            Mx (torch.Tensor): The Mx matrix. (width*height/f^2, rgb*f^2, n)"""
+        
+        height, width, rgb, n = X.shape
         f = filter_width
-        X_ims = X.T.reshape(X.shape[1], 3, image_width, image_width).permute(2, 3, 1, 0)
-        ni = X_ims.shape[3]
-        Mx = torch.zeros(size=((image_width//f)**2, f*f*3, ni))
-        for img_index in range(ni):
-            img = X_ims[:, :, :, img_index]
-            l = 0
-            for i in range(32//f):
-                for j in range(32//f):
-                    patch = img[i*f:i*f+f, j*f:j*f+f, :]
-                    Mx[l, :, img_index] = patch.reshape(1, f*f*3)
-                    l += 1
+
+        if (height % f != 0) or (width % f != 0):
+            raise ValueError("The height or width of the image isn't able to be divided by the filter. \
+                             The height of the image is " + str(height) + ", the width is " + str(width) + " and f is " + str(f))
+
+        X_blocks = X.reshape(height//f, f, width//f, f, rgb, n)
+
+        X_permuted = X_blocks.permute(0, 2, 1, 3, 4, 5)
+
+        Mx = X_permuted.reshape((height//f) * (width//f), rgb*f**2, n)
         
         self.Mx = Mx
         return Mx
-    
 
-    def get_mirrored_data(self, X:torch.Tensor) -> torch.Tensor:
-        """Mirrors the data horisontally (mirror line is vertical in the middle). 
+    def mirror_data(self, X:torch.Tensor, mirror_prob:float):
+        """Mirrors the data horisontally (mirror line is vertical in the middle). It is done in place. 
         
         Args:
             X (torch.Tensor): The data to be mirrored. (height, width, rgb, n)
-            
-        Returns:
-            X_mirror (torch.Tensor): The mirrored data. (height, width, rgb, n)"""
+            mirror_prob (float): Probability of flipping/mirroring each image. [0, 1]"""
         
-        return torch.flip(X.clone(), [1])
+        if mirror_prob == 0:
+            return
+        
+        n = X.shape[-1]
+
+        mirr_ind = torch.where(torch.rand(n) < mirror_prob)[0] #All images to be mirrored
+
+        if len(mirr_ind) == 0:
+            return
+        
+        X[..., mirr_ind] = torch.flip(X[..., mirr_ind], [1])
     
 
-    def get_rotated_data(self, X:torch.Tensor) -> torch.Tensor:
-        """Get all the rotations of the original data. 
+    def rotate_data(self, X:torch.Tensor, rot_prob:float):
+        """Rotate the data in place. 
         
         Args:
             X (torch.Tensor): The data to be mirrored. (height, width, rgb, n)
+            rot_prob (float): Probability of rotating each image. [0, 1]"""
+
+        if rot_prob == 0:
+            return
+        
+        n = X.shape[-1]
+        n_rot = 3
+
+        rot_probs = torch.rand(n)
+        rot_deg = torch.randint(1, n_rot+1, size=(n,))
+
+        for i in range(1, n_rot+1):
+            rot_ind = torch.where((rot_probs < rot_prob) & (rot_deg == i))[0] #All images to be rotated that way
             
-        Returns:
-            X_rot (torch.Tensor): The rotated data. (height, width, rgb, 4n)"""
+            if len(rot_ind) > 0:
+                X[..., rot_ind] = torch.rot90(X[..., rot_ind], i)
+
+    def add_noise01(self, X:torch.Tensor, noise_prob:float, noise_std:float):
+        """Adds noise in place. 
         
-        X_rot = X.clone()
-
-        for i in range(1, 3+1):
-            cur_X_rot = X.clone()
-            X_rot = torch.concat((X_rot, torch.rot90(cur_X_rot, i)), axis=3)
+        Args:
+            X (torch.Tensor): The data to be mirrored. (n, rgb, height, width)
+            noise_prob (float): Probability of adding noise to each image. [0, 1]
+            noise_std (float): Standard deviation of the noise. """
         
-        return X_rot
+        if noise_prob == 0:
+            return
+        
+        n = X.shape[0]
+
+        noise_ind = torch.where(torch.rand(n) < noise_prob)[0]
+
+        if len(noise_ind) == 0:
+            return
+        
+        noise_batch = X[noise_ind]
+
+        max_value = 1.0
+        min_value = 0.0
+
+        noise = torch.randn_like(noise_batch) * noise_std
+
+        X[noise_ind] = torch.clamp(noise_batch + noise, min=min_value, max=max_value)
+
+    def add_noise(self, X:torch.Tensor, noise_prob:float, noise_std:float):
+        """Adds noise in place. 
+        
+        Args:
+            X (torch.Tensor): The data to be mirrored. (height, width, rgb, n)
+            noise_prob (float): Probability of adding noise to each image. [0, 1]
+            noise_std (float): Standard deviation of the noise. """
+        
+        if noise_prob == 0:
+            return
+        
+        n = X.shape[-1]
+
+        noise_ind = torch.where(torch.rand(n) < noise_prob)[0]
+
+        if len(noise_ind) == 0:
+            return
+        
+        noise_batch = X[..., noise_ind]
+
+        max_value = 255.0
+        min_value = 0.0
+        noise_std *= max_value
+        if (self.X_mean is not None) and (self.X_std is not None):
+            max_value = (max_value - self.X_mean) / self.X_std
+            min_value = (min_value - self.X_mean) / self.X_std
+            noise_std = noise_std / self.X_std
+       
+
+        noise = torch.randn_like(noise_batch) * noise_std
+
+        X[..., noise_ind] = torch.clamp(noise_batch + noise, min=min_value, max=max_value)
 
 
-    def augment_data(self, X:torch.Tensor) -> torch.Tensor:
-        """Augment the data by rotating and flipping. 
+    def augment_data(self, X:torch.Tensor, flip_prob:float=0.5, rot_prob:float=0.1, noise_prob:float=0.2, \
+                     noise_std:float=0.05) -> torch.Tensor:
+        """Augment the data by rotating, flipping and adding noise. Clones the data. 
         
         Args:
             X (torch.Tensor): The data to be augmented. (height, width, rgb, n)
+            flip_prob (float): Probability of flipping/mirroring each image. [0, 1]
+            rot_prob (float):  Probability of rotating each image -90, 90 or 180 degrees. [0, 1]
+            noise_prob (float): Probability of adding noise to each image. [0, 1]
+            noise_std (float): Standard deviation of the noise. 
             
         Returns:
-            X_aug (torch.Tensor): The augmented data. (height, width, rgb, 8n)"""
+            X_aug (torch.Tensor): The augmented data. (height, width, rgb, n)"""
         
-        X = X.clone()
+        X_aug = self.unnormalize01(X.clone()) # Unnormalized it, and transforms the range back to 0-1
 
-        X = torch.concat((X, self.get_mirrored_data(X)), axis=3)
-        X = self.get_rotated_data(X)
-        noise = torch.normal(mean=torch.zeros_like(X), std=torch.ones_like(X)*0.05)
-        return 
+        # Torchvision augmentation
+        X_aug_perm = X_aug.permute(3, 2, 0, 1).clone()
+        #augmented_images = [self.augmentations(X_aug_perm[i]) for i in range(X_aug_perm.shape[0])]
+        #X_aug_perm = torch.stack(augmented_images)
+        X_aug_perm = self.augmentations(X_aug_perm) 
+        #print(X_aug_perm.shape)
+        X_aug = X_aug_perm.permute(2, 3, 1, 0).clone()
+
+
+        # Own augmentation implementations
+        self.add_noise01(X=X_aug, noise_prob=noise_prob, noise_std=noise_std)
+        self.mirror_data(X=X_aug, mirror_prob=flip_prob)
+        self.rotate_data(X=X_aug, rot_prob=rot_prob)
+
+        X_aug = self.normalize(X_aug*255, use_train_data=True)
+        return X_aug
 
 
     def unpickle(self, file: str, folder: str):
@@ -117,9 +219,14 @@ class Dataloader:
         final_ds.save_to_disk("Datasets/split_tiny_imagenet")
     
 
-    def load_train_data(self) -> dict:
+    def load_train_data(self, train_lim:int | None=None,print_progress:bool=False) -> dict:
         """Load the train and validation data from tiny imagenet. 
         
+        Args:
+            train_lim (int | None): None if all training data should be loaded, \
+                otherwise specifiy how much. 
+            print_progress (bool): Set to true if you want prints showing the progress
+
         Returns:
             train_val_data (dict): Dictionary of the training and validation data and labels. 
                 - **'X_train'** (torch.Tensor): The training data. (height, width, rgb, n_train)
@@ -128,8 +235,9 @@ class Dataloader:
                 - **'X_val'** (torch.Tensor): The validation data. (height, width, rgb, n_val)
                 - **'Y_val'** (torch.Tensor): The one-hot validation label matrix. (n_labels, n_val)
                 - **'y_val'** (torch.Tensor): The validation labels. (n_val,)"""
+        if print_progress: print("Before loading")
         ds = load_from_disk("Datasets/split_tiny_imagenet")
-        
+        if print_progress: print("Loaded from disk")
         n_classes = 200
 
         train_val_data = {}
@@ -138,19 +246,29 @@ class Dataloader:
         height, width, rgb = np.array(train_images[0].convert('RGB')).shape
 
         # -- Train --
-
+        if print_progress: print("Started with train")
         n_train = len(train_images)
-        X_train = torch.empty((height, width, rgb, n_train), dtype=torch.float32)
-        for i, img in enumerate(train_images):
-            X_train[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+        if train_lim is None:
+            X_train = torch.empty((height, width, rgb, n_train), dtype=torch.float32)
+            for i, img in enumerate(train_images):
+                X_train[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+            train_val_data['y_train'] = torch.tensor(ds['train']['label'], dtype=torch.long)
+    
+        else:
+            X_train = torch.empty((height, width, rgb, train_lim), dtype=torch.float32)
+            for i, img in enumerate(train_images):
+                if i >= train_lim:
+                    break
+                X_train[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+
+            train_val_data['y_train'] = torch.tensor(ds['train']['label'][:train_lim], dtype=torch.long)
+
         train_val_data['X_train'] = X_train
-        
-        train_val_data['y_train'] = torch.tensor(ds['train']['label'], dtype=torch.long)
         
         train_val_data['Y_train'] = torch.nn.functional.one_hot(train_val_data['y_train'], num_classes=n_classes)
        
         # -- Val --
-
+        if print_progress: print("Started with val")
         val_images = ds['val']['image']
         n_val = len(val_images)
         X_val = torch.empty((height, width, rgb, n_val), dtype=torch.float32)
@@ -161,7 +279,7 @@ class Dataloader:
         train_val_data['y_val'] = torch.tensor(ds['val']['label'], dtype=torch.long)
         
         train_val_data['Y_val'] = torch.nn.functional.one_hot(train_val_data['y_val'], num_classes=n_classes)
-        
+        if print_progress: print("Finished loading all the data!")
         return train_val_data
 
 
@@ -184,6 +302,26 @@ class Dataloader:
 
             return (X, Y, y)
 
+    def show_filters(self, F: torch.Tensor, freeze: bool = False):
+        F_visual = F.detach().clone()
+        nf = F.shape[1]
+        f = int(torch.math.sqrt(F.shape[0]/3))
+        min_val = torch.min(F_visual).item()
+        max_val = torch.max(F_visual).item()
+        F_visual = F_visual.reshape((f, f, 3, nf))
+
+        rows = 8
+        cols = 8
+        fig, axs = plt.subplots(cols, rows, figsize=(10, 5))
+        for i in range(rows*cols):
+            im = F_visual[..., i] - min_val
+            im /= (max_val-min_val + 1e-8)
+            axs[i // rows, i%rows].imshow(im)
+            axs[i // rows, i%rows].axis('off')
+        
+        if freeze: plt.show()
+        else:
+            plt.pause(0.1)
     
     def show_images(self, X, n=5):
         X_im = X.reshape((32, 32, 3, X.shape[1]), order='F')
@@ -202,14 +340,43 @@ class Dataloader:
         Args:
             X (torch.Tensor): The images. (height, width, rgb, n)"""
         
-        X_im = X / 255.0
-        fig, axs = plt.subplots(1, 5, figsize=(10, 5))
+        X_im = X.clone()
+        if torch.min(X_im).item() < 0.0 or torch.max(X_im).item() > 1.0:
+            X_im = self.unnormalize01(X_im)
+            
+        # Matplotlib expects floats to be strictly between 0.0 and 1.0. 
+        X_im = torch.clamp(X_im, 0.0, 1.0)
+
+        fig, axs = plt.subplots(1, max(n, 2), figsize=(10, 5))
         for i in range(n):
             axs[i].imshow(X_im[:, :, :, i])
             axs[i].axis('off')
         plt.show()
 
-    def normalize(X: torch.Tensor):
-        X_mean = torch.resize(torch.mean(X, axis = 1), (X.shape[0], 1))
-        X_std = torch.resize(torch.std(X, axis = 1), (X.shape[0], 1))
-        return (X - X_mean) / X_std, X_mean, X_std
+    def unnormalize01(self, X):
+        if (self.X_mean is not None) and (self.X_std is not None):
+            X_im = X * self.X_std + self.X_mean #Undo normalization
+        else:
+            X_im = X
+
+        X_im /= 255.0
+        X_im = torch.clamp(X_im, 0.0, 1.0)
+        return X_im
+
+    def normalize(self, X: torch.Tensor, use_train_data:bool=False) -> torch.Tensor:
+        """Normalize the data. Also saves the mean and standard deviation in the class. 
+        
+        Args:
+            X (torch.Tensor): The images. (height, width, rgb, n)
+            use_train_data (bool): Should be true if the data to be normalized is not the training data. \
+                Make sure that you've already normalized the train data in this class to utilize its mean and standard deviation. 
+        
+        Returns:
+            X_norm (torch.Tensor): The normalized data. (height, width, rgb, n)"""
+        
+        if not use_train_data:
+            
+            self.X_mean = torch.mean(X, dim = 3).unsqueeze(dim=3) # (height, width, rgb, 1)
+            self.X_std = torch.std(X, dim = 3).unsqueeze(dim=3) # (height, width, rgb, 1)
+        
+        return (X - self.X_mean) / (self.X_std + 1e-8)

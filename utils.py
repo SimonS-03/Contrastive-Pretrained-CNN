@@ -92,11 +92,13 @@ class AdamW(optimizer):
         for layer in range(len(grads)):
             layer_grads: dict = grads[layer]
             for param in layer_grads.keys():
-                self.mt[layer][param] = self.b1*self.mt[layer][param] + (1-self.b1)*layer_grads[param]
-                self.vt[layer][param] = self.b2*self.vt[layer][param] + (1-self.b2)*layer_grads[param]**2
+                param_grad = layer_grads[param].clone()
+                self.mt[layer][param] = self.b1*self.mt[layer][param] + (1-self.b1)*param_grad
+                self.vt[layer][param] = self.b2*self.vt[layer][param] + (1-self.b2)*param_grad**2
                 mt_hat = self.mt[layer][param] / (1-self.b1**iteration + self.eps)
                 vt_hat = self.vt[layer][param] / (1-self.b2**iteration + self.eps)
-                new_grads[layer][param] = (mt_hat / (torch.sqrt(vt_hat) + self.eps) + 2*lam*params[layer][param])
+                new_grads[layer][param] = (mt_hat / (torch.sqrt(vt_hat) + self.eps) + 2*param_grad)
+                #print(f"Grad-norm in layer {layer} and param {param}: {new_grads[layer][param].norm()}")
 
         return new_grads
 

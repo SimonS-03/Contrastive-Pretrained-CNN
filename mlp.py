@@ -48,8 +48,8 @@ class MLP_Layer:
 			Args:
 				input_dim (int): Dimension of input. 
 				output_dim (int): Dimension of output. """
-		
-		self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim), generator=self.rng, requires_grad=True)
+		self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim), generator=self.rng)
+		self.W.requires_grad = True
 		self.b = torch.zeros((output_dim, 1), requires_grad=True)
 
 
@@ -69,7 +69,11 @@ class MLP_Layer:
 		if self.activation_function == "ReLu":
 			act = torch.relu(s)
 		elif self.activation_function == "softmax":
-			act = torch.exp(s) / torch.sum(torch.exp(s), axis=0)
+			act = torch.softmax(s)
+			self.h = act
+			return self.h
+		elif self.activation_function == "linear":
+			act = s
 			self.h = act
 			return self.h
 		else:
@@ -79,15 +83,17 @@ class MLP_Layer:
 		if act is None:
 			raise ValueError("activation is None for some reason if MLP forward!")
 		
-		self.h = dropout(act, dropout_prob)
-		safety = 0
-		while(torch.all(self.h == 0)): # We dont want the entire activation to be zero!
-			self.h = dropout(act, dropout_prob)
-			safety += 1
-			if safety > 100:
-				print("Activation will be zero due to safety break in dropout loop!")
-				break
+
+		#act_drop = dropout(act, dropout_prob)
+		#safety = 0
+		#while(torch.all(act_drop == 0)): # We dont want the entire activation to be zero!
+		#	act_drop = dropout(act, dropout_prob)
+		#	safety += 1
+		#	if safety > 100:
+		#		print("Activation will be zero due to safety break in dropout loop!")
+		#		break
 		
+		self.h = torch.nn.functional.dropout(act, p=dropout_prob, training=True)
 		return self.h
 
 
