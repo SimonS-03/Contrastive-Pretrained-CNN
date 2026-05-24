@@ -1,5 +1,5 @@
 import torch
-import torchvision.transforms as trans
+import torchvision.transforms.v2 as trans
 import numpy as np
 import gc
 import pickle
@@ -14,11 +14,9 @@ class Dataloader:
         self.X_std:torch.Tensor = None
         """The standard deviation of the training data. (height, width, rgb, 1)"""
         self.augmentations = trans.Compose([
-            trans.RandomResizedCrop(size=(64, 64), scale=(.5, 1), antialias=True),
-            trans.RandomCrop(10),
-            trans.RandomApply([
-                trans.ColorJitter(brightness=(0, 0.5), contrast=(0, 0.5), saturation=(0, 0.5), hue=(0, 0.5))]),
-            trans.RandomGrayscale(p=.2)
+            trans.RandomResizedCrop(size=(64, 64), scale=(.35, 1), antialias=True),
+            trans.ColorJitter(brightness=.5, contrast=.5, saturation=.5, hue=.1),
+            trans.RandomGrayscale(p=.25)
         ])
 
     def create_Mx(self, X: torch.Tensor, filter_width: int = 2) -> torch.Tensor:
@@ -89,6 +87,32 @@ class Dataloader:
             if len(rot_ind) > 0:
                 X[..., rot_ind] = torch.rot90(X[..., rot_ind], i)
 
+    def add_noise01(self, X:torch.Tensor, noise_prob:float, noise_std:float):
+        """Adds noise in place. 
+        
+        Args:
+            X (torch.Tensor): The data to be mirrored. (n, rgb, height, width)
+            noise_prob (float): Probability of adding noise to each image. [0, 1]
+            noise_std (float): Standard deviation of the noise. """
+        
+        if noise_prob == 0:
+            return
+        
+        n = X.shape[0]
+
+        noise_ind = torch.where(torch.rand(n) < noise_prob)[0]
+
+        if len(noise_ind) == 0:
+            return
+        
+        noise_batch = X[noise_ind]
+
+        max_value = 1.0
+        min_value = 0.0
+
+        noise = torch.randn_like(noise_batch) * noise_std
+
+        X[noise_ind] = torch.clamp(noise_batch + noise, min=min_value, max=max_value)
 
     def add_noise(self, X:torch.Tensor, noise_prob:float, noise_std:float):
         """Adds noise in place. 
@@ -138,17 +162,23 @@ class Dataloader:
         Returns:
             X_aug (torch.Tensor): The augmented data. (height, width, rgb, n)"""
         
-        X_aug = X.clone()
+        X_aug = self.unnormalize01(X.clone()) # Unnormalized it, and transforms the range back to 0-1
+
+        # Torchvision augmentation
+        X_aug_perm = X_aug.permute(3, 2, 0, 1).clone()
+        #augmented_images = [self.augmentations(X_aug_perm[i]) for i in range(X_aug_perm.shape[0])]
+        #X_aug_perm = torch.stack(augmented_images)
+        X_aug_perm = self.augmentations(X_aug_perm) 
+        #print(X_aug_perm.shape)
+        X_aug = X_aug_perm.permute(2, 3, 1, 0).clone()
+
+
         # Own augmentation implementations
-        self.add_noise(X=X_aug, noise_prob=noise_prob, noise_std=noise_std)
+        self.add_noise01(X=X_aug, noise_prob=noise_prob, noise_std=noise_std)
         self.mirror_data(X=X_aug, mirror_prob=flip_prob)
         self.rotate_data(X=X_aug, rot_prob=rot_prob)
 
-        # Torchvision augmentation
-        X_aug_perm = X_aug.permute(3, 2, 0, 1)
-        self.augmentations(X_aug_perm)
-        X_aug = X_aug_perm.permute(2, 3, 1, 0)
-
+        X_aug = self.normalize(X_aug*255, use_train_data=True)
         return X_aug
 
 
@@ -315,17 +345,28 @@ class Dataloader:
         Args:
             X (torch.Tensor): The images. (height, width, rgb, n)"""
         
+        X_im = X.clone()
+        if torch.min(X_im).item() < 0.0 or torch.max(X_im).item() > 1.0:
+            X_im = self.unnormalize01(X_im)
+            
+        # Matplotlib expects floats to be strictly between 0.0 and 1.0. 
+        X_im = torch.clamp(X_im, 0.0, 1.0)
+
+        fig, axs = plt.subplots(1, max(n, 2), figsize=(10, 5))
+        for i in range(n):
+            axs[i].imshow(X_im[:, :, :, i])
+            axs[i].axis('off')
+        plt.show()
+
+    def unnormalize01(self, X):
         if (self.X_mean is not None) and (self.X_std is not None):
             X_im = X * self.X_std + self.X_mean #Undo normalization
         else:
             X_im = X
 
         X_im /= 255.0
-        fig, axs = plt.subplots(1, max(n, 2), figsize=(10, 5))
-        for i in range(n):
-            axs[i].imshow(X_im[:, :, :, i])
-            axs[i].axis('off')
-        plt.show()
+        X_im = torch.clamp(X_im, 0.0, 1.0)
+        return X_im
 
     def normalize(self, X: torch.Tensor, use_train_data:bool=False) -> torch.Tensor:
         """Normalize the data. Also saves the mean and standard deviation in the class. 
@@ -343,4 +384,4 @@ class Dataloader:
             self.X_mean = torch.mean(X, dim = 3).unsqueeze(dim=3) # (height, width, rgb, 1)
             self.X_std = torch.std(X, dim = 3).unsqueeze(dim=3) # (height, width, rgb, 1)
         
-        return (X - self.X_mean) / self.X_std
+        return (X - self.X_mean) / (self.X_std + 1e-8)

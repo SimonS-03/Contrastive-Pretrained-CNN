@@ -303,57 +303,60 @@ class CNN:
 		last_layer_output_shape = self.layers[-1].W.shape[1]
 		head_output_dim = 200
 		original_head = self.layers[-1]
-		pretraining_head = MLP_Layer(input_dim=last_layer_output_shape, output_dim=head_output_dim, activation_function="ReLu")
-		self.layers[-1] = pretraining_head
+		pretraining_head = MLP_Layer(input_dim=last_layer_output_shape, output_dim=head_output_dim, activation_function="linear")
+		try:
+			self.layers[-1] = pretraining_head
 
-		for i in pbar:
-			if debug_logs: print(f"Started epoch {i}")
+			for i in pbar:
+				if debug_logs: print(f"Started epoch {i}")
 
-			permutation = torch.randperm(X_train.shape[-1], generator=self.rng)
-			if shuffle_set:
-				X_train_shuffled = X_train_shuffled[..., permutation]
-	
-			epoch_loss = None
-			for j in range(num_minibatches):
-				#print(f"minibatch {j}")
-				#print(f"Starting update step {update_step}")
-				batch_start = j*batch_size
-				batch_end = (j+1)*batch_size
-				
-				X_batch = X_train_shuffled[..., batch_start:batch_end]
-				aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=.75, noise_prob=1)
-				aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=.2, noise_prob=1)
-				aug_batch1 = self.dataloader.create_Mx(aug_batch1, filter_width=self.layers[0].filter_width)
-				aug_batch2 = self.dataloader.create_Mx(aug_batch2, filter_width=self.layers[0].filter_width)
-				#print(f"Mag of augmented batch 1 Mx: {aug_batch1.norm()}")
-				
-				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
-				if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]['W'].norm()}")
-				for param_set in params: # Zeroing gradients before loss calculation
-					param_set["W"].grad = None
-					param_set["b"].grad = None
-				
-				output_batch1 = self.forward(aug_batch1, dropout_prob=.3) # (10, batch_size)
-				output_batch2 = self.forward(aug_batch2, dropout_prob=.3) # (10, batch_size)
-				if debug_logs: print(f"Output magnitude at step {update_step}: {torch.round(output_batch1.norm(), decimals=2)}")
-				loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=0.1) # Choise of temp is based on report
-				#print(f"Loss at step {update_step}: {torch.round(loss, decimals=2)}")
-				loss.backward()
-				with torch.no_grad():
-					auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.layers]
-					#print(f"Grad of input layer at step {update_step}: {torch.round(auto_grads[0]["W"].norm(), decimals=2)}")
-					#print(f"Grad of output layer at step {update_step}: {torch.round(auto_grads[-1]["W"].norm(), decimals=2)}")
-					optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
-					lr = schedule.get_lr(update_step)
-					self.__back_pass(lr, optim_grads)
+				permutation = torch.randperm(X_train.shape[-1], generator=self.rng)
+				if shuffle_set:
+					X_train_shuffled = X_train_shuffled[..., permutation]
+		
+				epoch_loss = None
+				for j in range(num_minibatches):
+					#print(f"minibatch {j}")
+					#print(f"Starting update step {update_step}")
+					batch_start = j*batch_size
+					batch_end = (j+1)*batch_size
+					
+					X_batch = X_train_shuffled[..., batch_start:batch_end]
+					aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=0, noise_prob=.5)
+					aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=0, noise_prob=1)
+					aug_batch1 = self.dataloader.create_Mx(aug_batch1, filter_width=self.layers[0].filter_width)
+					aug_batch2 = self.dataloader.create_Mx(aug_batch2, filter_width=self.layers[0].filter_width)
+					#print(f"Mag of augmented batch 1 Mx: {aug_batch1.norm()}")
+					
+					params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
+					if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]["W"].norm()}")
+					for param_set in params: # Zeroing gradients before loss calculation
+						param_set["W"].grad = None
+						param_set["b"].grad = None
+					
+					output_batch1 = self.forward(aug_batch1, dropout_prob=.3) # (10, batch_size)
+					output_batch2 = self.forward(aug_batch2, dropout_prob=.3) # (10, batch_size)
+					if debug_logs: print(f"Output magnitude at step {update_step}: {torch.round(output_batch1.norm(), decimals=2)}")
+					loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=0.1) # Choise of temp is based on report
+					#print(f"Loss at step {update_step}: {torch.round(loss, decimals=2)}")
+					loss.backward()
+					with torch.no_grad():
+						auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.layers]
+						#print(f"Grad of input layer at step {update_step}: {torch.round(auto_grads[0]["W"].norm(), decimals=2)}")
+						#print(f"Grad of output layer at step {update_step}: {torch.round(auto_grads[-1]["W"].norm(), decimals=2)}")
+						optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
+						lr = schedule.get_lr(update_step)
+						self.__back_pass(lr, optim_grads)
 
-				epoch_loss = loss.detach().numpy()
-				update_step += 1
-			
-			training_losses.append(epoch_loss)
-			pbar.set_postfix(loss = f"Contrastive training loss: {np.round(training_losses[-1], decimals=4)}")
-			
-		self.layers[-1] = original_head # Remove pretraining head
+					epoch_loss = loss.detach().numpy()
+					update_step += 1
+				
+				self.show_filters(self.layers[0].W, freeze=False)
+				training_losses.append(epoch_loss)
+				pbar.set_postfix(loss = f"{training_losses[-1]:.4f}", filter_mag = f"{self.layers[0].W.norm().item():.4f}")
+		finally:
+			self.layers[-1] = original_head # Remove pretraining head
+		
 		if not show_plots: # We only need the lists below for plots
 			return
 
@@ -379,49 +382,12 @@ class CNN:
 		nominator = torch.cat([positive_sims, positive_sims])
 		denominator = torch.sum(exp_sim_no_self, dim=1)
 
-		return torch.mean(-torch.log(nominator/denominator))
+		return torch.mean(-torch.log(nominator/denominator) + 1e-8)
 	
 
 
 	def __similarity(x1: torch.Tensor, x2: torch.Tensor) -> float:
 		return (x1.T @ x2) / (torch.norm(x1) * torch.norm(x2))
-
-
-
-	def __get_contrastive_loss_for(self, aug_set1: torch.Tensor, aug_set2: torch.Tensor, temp: float) -> torch.Tensor:
-		"""Returns the contrastive loss from paper in the report. """
-		loss_ij = torch.tensor(0)
-		loss_ji = torch.tensor(0)
-		N_batch = aug_set1.shape[1]
-
-		for img_idx in range(N_batch):
-			aug_img1 = aug_set1[:, img_idx]
-			aug_img2 = aug_set2[:, img_idx]
-
-			# Normalized Temperature scaled Cross Entropy
-			nom_ij= torch.exp(self.__similarity(aug_img1, aug_img2)/temp)
-			denom_ij = 0
-			nom_ji= torch.exp(self.__similarity(aug_img2, aug_img1)/temp)
-			denom_ji = 0
-			for i in range(aug_set1.shape[1]):
-				if i == img_idx: 
-					continue
-				neg1 = aug_set1[:, i]
-				neg2 = aug_set2[:, i]
-				denom_ij += torch.exp(self.__similarity(aug_img1, neg1)/temp)
-				denom_ij += torch.exp(self.__similarity(aug_img1, neg2)/temp)
-
-				denom_ji += torch.exp(self.__similarity(aug_img2, neg1)/temp)
-				denom_ji += torch.exp(self.__similarity(aug_img2, neg2)/temp)
-			
-			loss_ij += -torch.log(nom_ij/denom_ij)
-			loss_ji += -torch.log(nom_ji/denom_ji)
-		
-		return (loss_ij + loss_ji) / (2*N_batch)
-
-
-
-
 
 
 
@@ -446,7 +412,84 @@ class CNN:
 		plt.show()
 
 		return torch.sum(corrects) / X.shape[1]
+	
+	def save_model(self, filepath: str):
+		"""Saves the weights and biases of all layers to a file."""
+		model_state = []
+		for layer in self.layers:
+			# We use .detach().cpu() to safely grab the data without the computational graph
+			layer_state = {
+				"W": layer.W.detach().cpu().clone(),
+				"b": layer.b.detach().cpu().clone()
+			}
+			model_state.append(layer_state)
+		
+		torch.save(model_state, filepath)
+		print(f"Model successfully saved to {filepath}")
 
+	def load_model(self, filepath: str):
+		"""Loads weights and biases from a file into the initialized layers."""
+		try:
+			model_state = torch.load(filepath)
+		except:
+			print("No saved file found, returning...")
+			return
+		
+		if len(model_state) != len(self.layers):
+			raise ValueError("The loaded model has a different number of layers than the current model!")
+			
+		with torch.no_grad():
+			for layer, loaded_state in zip(self.layers, model_state):
+				# .copy_() overwrites the existing tensor data in-place safely
+				layer.W.copy_(loaded_state["W"])
+				layer.W.requires_grad = True
+				layer.b.copy_(loaded_state["b"])
+				layer.b.requires_grad = True
+				
+		print(f"Model successfully loaded from {filepath}")
+
+	
+	def show_filters(self, F: torch.Tensor, freeze: bool = False):
+		# 1. Initialize the figure and image objects ONLY ONCE
+		if not hasattr(self, 'filter_fig') or not plt.fignum_exists(self.filter_fig.number):
+			plt.ion() 
+			self.filter_fig, self.filter_axs = plt.subplots(8, 8, figsize=(10, 5))
+			plt.show(block=False)
+			self.filter_axs = self.filter_axs.flatten()
+			
+			# Create a list to store the actual Image objects
+			self.im_objects = [None] * len(self.filter_axs)
+
+		if not plt.fignum_exists(self.filter_fig.number):
+			return
+
+		F_visual = F.detach().clone()
+		nf = F.shape[1]
+		f = int(torch.math.sqrt(F.shape[0]/3))
+		max_abs = torch.max(torch.abs(F_visual)).item()
+		F_visual = F_visual.reshape((f, f, 3, nf))
+
+		num_to_show = min(64, nf)
+		
+		for i in range(num_to_show):
+			im = (F_visual[..., i] / (2 * max_abs + 1e-8)) + 0.5
+			im = torch.clamp(im, 0.0, 1.0).cpu().numpy()
+			
+			# 2. Update pixels instead of redrawing the whole plot!
+			if self.im_objects[i] is None:
+				# First time: draw the image and save the object
+				self.im_objects[i] = self.filter_axs[i].imshow(im)
+				self.filter_axs[i].axis('off')
+			else:
+				# Next epochs: just inject the new pixels! (Lightning fast)
+				self.im_objects[i].set_data(im)
+		
+		if freeze: 
+			plt.ioff()
+			plt.show()
+		else:
+			self.filter_fig.canvas.draw()
+			self.filter_fig.canvas.flush_events()
 
 if __name__ == "__main__":
 	pass
