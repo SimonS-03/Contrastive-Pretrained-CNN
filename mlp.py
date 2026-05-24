@@ -48,7 +48,11 @@ class MLP_Layer:
 			Args:
 				input_dim (int): Dimension of input. 
 				output_dim (int): Dimension of output. """
-		self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim), generator=self.rng)
+		if self.activation_function == "softmax":
+			self.W = 0.01 * torch.randn(size=(output_dim, input_dim), generator=self.rng)
+		else:
+			self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim), generator=self.rng)
+		
 		self.W.requires_grad = True
 		self.b = torch.zeros((output_dim, 1), requires_grad=True)
 
@@ -69,7 +73,7 @@ class MLP_Layer:
 		if self.activation_function == "ReLu":
 			act = torch.relu(s)
 		elif self.activation_function == "softmax":
-			act = torch.softmax(s)
+			act = torch.softmax(s, dim=0)
 			self.h = act
 			if torch.any(self.h.isnan()):
 				raise ValueError("Some values are NaN after doing softmax. ")
@@ -96,6 +100,10 @@ class MLP_Layer:
 		#		break
 		
 		self.h = torch.nn.functional.dropout(act, p=dropout_prob, training=True)
+
+		if torch.any(self.h.isnan()):
+			raise ValueError("Some values are NaN after normal MLP. ")
+
 		return self.h
 
 
