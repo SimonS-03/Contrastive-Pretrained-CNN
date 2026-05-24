@@ -189,10 +189,12 @@ class Dataloader:
         final_ds.save_to_disk("Datasets/split_tiny_imagenet")
     
 
-    def load_train_data(self, print_progress:bool=False) -> dict:
+    def load_train_data(self, train_lim:int | None=None,print_progress:bool=False) -> dict:
         """Load the train and validation data from tiny imagenet. 
         
         Args:
+            train_lim (int | None): None if all training data should be loaded, \
+                otherwise specifiy how much. 
             print_progress (bool): Set to true if you want prints showing the progress
 
         Returns:
@@ -216,12 +218,22 @@ class Dataloader:
         # -- Train --
         if print_progress: print("Started with train")
         n_train = len(train_images)
-        X_train = torch.empty((height, width, rgb, n_train), dtype=torch.float32)
-        for i, img in enumerate(train_images):
-            X_train[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+        if train_lim is None:
+            X_train = torch.empty((height, width, rgb, n_train), dtype=torch.float32)
+            for i, img in enumerate(train_images):
+                X_train[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+            train_val_data['y_train'] = torch.tensor(ds['train']['label'], dtype=torch.long)
+    
+        else:
+            X_train = torch.empty((height, width, rgb, train_lim), dtype=torch.float32)
+            for i, img in enumerate(train_images):
+                if i >= train_lim:
+                    break
+                X_train[..., i] = torch.from_numpy(np.array(img.convert('RGB')))
+
+            train_val_data['y_train'] = torch.tensor(ds['train']['label'][:train_lim], dtype=torch.long)
+
         train_val_data['X_train'] = X_train
-        
-        train_val_data['y_train'] = torch.tensor(ds['train']['label'], dtype=torch.long)
         
         train_val_data['Y_train'] = torch.nn.functional.one_hot(train_val_data['y_train'], num_classes=n_classes)
        
@@ -304,7 +316,7 @@ class Dataloader:
             X_im = X
 
         X_im /= 255.0
-        fig, axs = plt.subplots(1, 5, figsize=(10, 5))
+        fig, axs = plt.subplots(1, max(n, 2), figsize=(10, 5))
         for i in range(n):
             axs[i].imshow(X_im[:, :, :, i])
             axs[i].axis('off')

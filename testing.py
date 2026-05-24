@@ -277,8 +277,9 @@ def test_augmentation():
 def test_tiny_image():
 	"""Load some of the tiny images. """
 	dataload = dataloader.Dataloader()
-	data = dataload.load_train_data()
+	data = dataload.load_train_data(print_progress=True, train_lim=5)
 	dataload.show_tiny_images(data['X_train'])
+	
 
 
 def test_augment_tiny():
