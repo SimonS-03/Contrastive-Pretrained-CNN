@@ -78,8 +78,20 @@ class CNN:
 		return cross_entropy + reg
 
 
-	def __cross_entropy_loss(self, p: torch.Tensor, Y_batch: torch.Tensor):
-		return torch.mean(torch.sum(-Y_batch*torch.log(p), axis = 0))
+	def __cross_entropy_loss(self, p: torch.Tensor, Y_batch: torch.Tensor, eps:float=1e-10) -> float:
+		"""Calculates the cross entropy loss. 
+		
+		Args:
+			p (torch.Tensor): The calculated probabilites. (n_classes, n)
+			Y_batch (torch.Tensor): The actual one-hot labels. (n_classes, n)
+			eps (float): Small number to avoid overflow errors when doing log(p). """
+
+		logi = torch.log(p+eps)
+		multi = -Y_batch*logi
+		sumi = torch.sum(multi, axis = 0)
+		meany = torch.mean(sumi)
+
+		return meany
 
 
 	def get_gradient(self, Mx_batch:torch.Tensor, Y_batch:torch.Tensor, P_batch:torch.Tensor) -> list[dict]:

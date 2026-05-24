@@ -71,6 +71,8 @@ class MLP_Layer:
 		elif self.activation_function == "softmax":
 			act = torch.softmax(s)
 			self.h = act
+			if torch.any(self.h.isnan()):
+				raise ValueError("Some values are NaN after doing softmax. ")
 			return self.h
 		elif self.activation_function == "linear":
 			act = s
