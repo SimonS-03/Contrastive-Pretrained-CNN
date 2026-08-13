@@ -6,6 +6,7 @@ from convolution import Conv_Layer
 from mlp import MLP_Layer
 from utils import *
 import numpy as np
+
 class CNN:
 	def __init__(self, layers: list[Conv_Layer | MLP_Layer], lam: float = 0, dropout_prob:float=0, seed:int=42):
 		"""Creates a linear classifier with 10 output classes.
@@ -24,6 +25,18 @@ class CNN:
 		"""The dataloader class for this CNN. """
 		self.rng = self.__initialize_seed(seed)
 		"""The random number generator for this CNN. """
+
+		self.history = {
+			'epochs': [], 'train_costs': [], 'train_losses': [],
+			'val_costs': [], 'val_losses': [],
+			'train_accuracys': [], 'val_accuracys': []
+		}
+		"""The history of the training run. \\
+			'epochs', 'train_costs', 'train_losses', 'val_costs', 'val_losses',
+			'train_accuracys', 'val_accuracys'"""
+	
+		self.current_epoch = 0
+		"""Current epoch. """
 	
 	def __initialize_seed(self, seed:int) -> torch.Generator:
 		"""Initialize the random number generator. 
@@ -189,14 +202,6 @@ class CNN:
 		n_datapoints = X_train.shape[3]
 		num_minibatches = int(n_datapoints / batch_size)
 
-		train_costs = []
-		train_losses = []
-		val_costs = []
-		val_losses = []
-		lr_decay_epochs = []
-		val_accuracys = []
-		train_accuracys = []
-
 		X_train_shuffled = X_train.clone()
 		Y_train_shuffled = Y_train.clone()
 		Mx_train = self.dataloader.create_Mx(X_train, filter_width=self.layers[0].filter_width)
@@ -212,6 +217,7 @@ class CNN:
 
 		for i in pbar:
 			#print(f"Started epoch {i}")
+			self.current_epoch += 1
 
 			permutation = torch.randperm(n_datapoints, generator=self.rng)
 			if shuffle_set:
@@ -250,35 +256,36 @@ class CNN:
 				continue
 
 			with torch.no_grad():
-				train_costs.append(total_train_cost.detach()/num_minibatches)
-				train_losses.append(total_train_loss.detach()/num_minibatches)
+				self.history['epochs'].append(self.current_epoch)
+				self.history['train_costs'].append((total_train_cost.detach()/num_minibatches).item())
+				self.history['train_losses'].append((total_train_loss.detach()/num_minibatches).item())
 				
 				P_val = self.forward(Mx_val, dropout_prob=0)
 				val_cost, val_loss = self.__cost_function(P_val, Y_val)
-				val_costs.append(val_cost.detach())
-				val_losses.append(val_loss.detach())
+				self.history['val_costs'].append(val_cost.detach().item())
+				self.history['val_losses'].append(val_loss.detach().item())
 			
 				if Mx_val is not None and y_val is not None and y_train is not None:
-					val_accuracys.append(self.get_accuracy(Mx_val, y_val))
-					train_accuracys.append(self.get_accuracy(Mx_train, y_train))
+					self.history['val_accuracys'].append(self.get_accuracy(Mx_val, y_val).item())
+					self.history['train_accuracys'].append(self.get_accuracy(Mx_train, y_train).item())
 
 			pbar.set_postfix(loss = f"{round(val_loss.item(), 4)}")
 			
-			nbr_entries = len(train_costs)
-			x_axis = torch.arange(nbr_entries) * epoch_plot_period
+			nbr_entries = len(self.history['train_costs'])
+			x_axis = self.history['epochs']
 			ax1.clear()
-			ax1.plot(x_axis, train_costs, label = "Training Cost", color = "y")
-			ax1.plot(x_axis, train_losses, label = "Training Loss", linestyle='--', color = "r")
-			ax1.plot(x_axis, val_costs, label = "Validation Cost", color = "b")
-			ax1.plot(x_axis, val_losses, label = "Validation Loss", linestyle = '--', color = "c")
+			ax1.plot(x_axis, self.history['train_costs'], label = "Training Cost", color = "y")
+			ax1.plot(x_axis, self.history['train_losses'], label = "Training Loss", linestyle='--', color = "r")
+			ax1.plot(x_axis, self.history['val_costs'], label = "Validation Cost", color = "b")
+			ax1.plot(x_axis, self.history['val_losses'], label = "Validation Loss", linestyle = '--', color = "c")
 			ax1.set_xlabel("Epoch")
 			ax1.legend()
 			ax1.set_title(f"Train/val cost + loss, lam={self.lam}")
 
 			ax2.clear()
 			ax2.set_title("Train/Val accuracy over epochs")
-			ax2.plot(x_axis, val_accuracys, label="validation")
-			ax2.plot(x_axis, train_accuracys, label="training")
+			ax2.plot(x_axis, self.history['val_accuracys'], label="validation")
+			ax2.plot(x_axis, self.history['train_accuracys'], label="training")
 			ax2.set_xlabel("Epoch")
 			ax2.legend()
 
@@ -417,40 +424,52 @@ class CNN:
 
 		return torch.sum(corrects) / X.shape[1]
 	
-	def save_model(self, filepath: str):
-		"""Saves the weights and biases of all layers to a file."""
+	def save_checkpoint(self, filepath: str):
+		"""Saves the weights, biases, history, and elapsed time to a file."""
 		model_state = []
 		for layer in self.layers:
-			# We use .detach().cpu() to safely grab the data without the computational graph
 			layer_state = {
 				"W": layer.W.detach().cpu().clone(),
 				"b": layer.b.detach().cpu().clone()
 			}
 			model_state.append(layer_state)
 		
-		torch.save(model_state, filepath)
-		print(f"Model successfully saved to {filepath}")
+		checkpoint = {
+			"model_state": model_state,
+			"history": self.history,
+			"current_epoch": self.current_epoch
+		}
+		torch.save(checkpoint, "Saved_Networks/" + filepath)
+		print(f"Checkpoint successfully saved to {filepath}")
 
-	def load_model(self, filepath: str):
-		"""Loads weights and biases from a file into the initialized layers."""
+	def load_checkpoint(self, filepath: str):
+		"""Loads a checkpoint so you can resume training and plots."""
 		try:
-			model_state = torch.load(filepath)
+			checkpoint = torch.load("Saved_Networks/" + filepath)
 		except:
 			print("No saved file found, returning...")
 			return
 		
+		# Check if it's the old format (just a list of layers) or the new dictionary format
+		if isinstance(checkpoint, list): 
+			model_state = checkpoint
+		else:
+			model_state = checkpoint.get("model_state")
+			self.history = checkpoint.get("history", self.history)
+			self.total_training_time = checkpoint.get("total_training_time", 0.0)
+			self.current_epoch = checkpoint.get("current_epoch", 0)
+
 		if len(model_state) != len(self.layers):
 			raise ValueError("The loaded model has a different number of layers than the current model!")
 			
 		with torch.no_grad():
 			for layer, loaded_state in zip(self.layers, model_state):
-				# .copy_() overwrites the existing tensor data in-place safely
 				layer.W.copy_(loaded_state["W"])
 				layer.W.requires_grad = True
 				layer.b.copy_(loaded_state["b"])
 				layer.b.requires_grad = True
 				
-		print(f"Model successfully loaded from {filepath}")
+		print(f"Checkpoint successfully loaded from {filepath}")
 
 	
 	def show_filters(self, F: torch.Tensor, freeze: bool = False):

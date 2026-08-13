@@ -13,11 +13,23 @@ class Dataloader:
         """The mean of the training data. (height, width, rgb, 1)"""
         self.X_std:torch.Tensor = None
         """The standard deviation of the training data. (height, width, rgb, 1)"""
+        self.augmentations:trans.Compose = None
+        """For augmenting the data. """
+
+
+    def create_self_augmentation(self, height:int, width:int) -> None:
+        """Creates **self.augmentations** based on the height and width of the image 
+        if it has not already been created. """
+
+        if self.augmentations != None:
+            return
+
         self.augmentations = trans.Compose([
-            trans.RandomResizedCrop(size=(64, 64), scale=(.35, 1), antialias=True),
+            trans.RandomResizedCrop(size=(height, width), scale=(.35, 1), antialias=True),
             trans.ColorJitter(brightness=.5, contrast=.5, saturation=.5, hue=.1),
             trans.RandomGrayscale(p=.25)
         ])
+
 
     def create_Mx(self, X: torch.Tensor, filter_width: int = 2) -> torch.Tensor:
         """
@@ -161,6 +173,8 @@ class Dataloader:
             
         Returns:
             X_aug (torch.Tensor): The augmented data. (height, width, rgb, n)"""
+
+        self.create_self_augmentation(height=X.shape[0], width=X.shape[1])
         
         X_aug = self.unnormalize01(X.clone()) # Unnormalized it, and transforms the range back to 0-1
 
@@ -398,3 +412,60 @@ class Dataloader:
             self.X_std = torch.std(X, dim = 3).unsqueeze(dim=3) # (height, width, rgb, 1)
         
         return (X - self.X_mean) / (self.X_std + 1e-8)
+
+
+    def LoadBatch(self, filename:str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Gets the data and labels given the file name. """
+
+        cifar_dir = 'Datasets/cifar-10-batches-py/'
+        with open(cifar_dir + filename, 'rb') as fo:
+            dict = pickle.load(fo, encoding='bytes')
+
+        # Extract the image data and cast to float from the dict dictionary
+        X = torch.tensor(dict[b'data']).float()
+
+        n_images = X.shape[0]
+
+        X_im = X.reshape(3, 32, 32, n_images).permute(2, 1, 0, 3)
+        
+        # Get the labels
+        labels = dict[b'labels']
+        y = torch.tensor(labels)
+
+        # Get the one-hot vectors
+        n_labels = max(y)+1
+        Y = torch.zeros((n_labels, n_images), dtype=torch.float32)
+        for i in range(n_images):
+            cur_label = labels[i]
+            Y[cur_label, i] = 1
+
+        return X_im, Y, y
+    
+
+    def load_cifar_data(self):
+
+        batch1_X, batch1_Y, batch1_y = self.LoadBatch("data_batch_1")
+        batch2_X, batch2_Y, batch2_y = self.LoadBatch("data_batch_2")
+        batch3_X, batch3_Y, batch3_y = self.LoadBatch("data_batch_3")
+        batch4_X, batch4_Y, batch4_y = self.LoadBatch("data_batch_4")
+        batch5_X, batch5_Y, batch5_y = self.LoadBatch("data_batch_5")
+
+        data = {}
+
+        big_X = torch.concat((batch1_X, batch2_X, batch3_X, batch4_X, batch5_X), axis=3)
+        big_Y = torch.concat((batch1_Y, batch2_Y, batch3_Y, batch4_Y, batch5_Y), axis=1)
+        big_y = torch.concat((batch1_y, batch2_y, batch3_y, batch4_y, batch5_y))
+        data['X_val'] = big_X[:, :, :, -1000:].clone()
+        data['Y_val'] = big_Y[:, -1000:].clone()
+        data['y_val'] = big_y[-1000:].clone().float()
+        data['X_train'] = big_X[:, :, :, :-1000].clone()
+        data['Y_train'] = big_Y[:, :-1000].clone()
+        data['y_train'] = big_y[:-1000].clone().float()
+
+        data['X_train'] = self.normalize(X=data['X_train'])
+
+        #Normalize
+        data['X_val'] -= self.X_mean
+        data['X_val'] /= self.X_std
+
+        return data

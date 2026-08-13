@@ -397,5 +397,77 @@ def test_contrastive_small_sample(load_saved: bool = False):
 
 
 
+def real_minibatch_run():
+	"""Does a solid minibatch run"""
+
+	dataload = dataloader.Dataloader()
+	data = dataload.load_train_data(print_progress=True, train_lim=1000, val_lim=100)
+	X_train = data['X_train']
+	X_train = dataload.normalize(X_train)
+	X_val = dataload.normalize(data['X_val'], use_train_data=True)
+
+	f = 4
+	nf = 100
+	m = 100
+	rgb = 3
+	n_classes = data['Y_train'].shape[0]
+	width = X_train.shape[0]
+
+	conv = convolution.Conv_Layer(filter_width=f, nf=nf, channels=rgb, activation_function="ReLu")
+	#conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
+
+	mlp_1 = mlp.MLP_Layer(input_dim=(width//f)**2*nf, output_dim=m, activation_function="ReLu")
+
+	mlp_2 = mlp.MLP_Layer(input_dim=m, output_dim=n_classes, activation_function="softmax")
+
+	cnn_final = cnn.CNN([conv, mlp_1, mlp_2], lam=0.01, dropout_prob=0.4)
+	cnn_final.load_checkpoint("test_second_minibatch")
+	cnn_final.dataloader = dataload
+	
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-4, max_lr=1e-3)
+	adamW_optim = utils.AdamW()
+	cnn_final.minibatchGD(X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_val, \
+					  Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, batch_size=200, max_num_epochs=200, show_plots=True)
+
+	cnn_final.save_checkpoint("test_second_minibatch")
+
+
+def cifar_minibatch():
+	"""Test cifar"""
+
+	debug_file = 'Datasets/debug_info.npz'
+	load_data = np.load(debug_file)
+
+	X = torch.tensor(load_data['X']).float() # (d, n)
+
+	nf = 2
+	width = 32
+
+	loader = dataloader.Dataloader()
+	data = loader.load_cifar_data()
+	
+	n_classes = data['Y_train'].shape[0]
+	f = 4
+	nf = 100
+	m = 100
+	rgb = 3
+
+	conv = convolution.Conv_Layer(filter_width=f, nf=nf, channels=rgb, activation_function="ReLu")
+
+	mlp_1 = mlp.MLP_Layer(input_dim=(width//f)**2*nf, output_dim=m, activation_function="ReLu")
+
+	mlp_2 = mlp.MLP_Layer(input_dim=m, output_dim=n_classes, activation_function="softmax")
+
+	cnn_final = cnn.CNN([conv, mlp_1, mlp_2], lam=0.01, dropout_prob=0.4)
+	#cnn_final.load_checkpoint("test_first_cifar")
+	cnn_final.dataloader = loader
+	
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-4, max_lr=1e-3)
+	adamW_optim = utils.AdamW()
+	cnn_final.minibatchGD(X_train=data['X_train'][..., :1000], Y_train=data['Y_train'][..., :1000], y_train=data['y_train'][..., :1000], X_val=data['X_val'], \
+					  Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, batch_size=200, max_num_epochs=200, show_plots=True)
+
+	cnn_final.save_checkpoint("test_first_cifar")
+
 if __name__ == "__main__":
 	test_train_augment_tiny()
