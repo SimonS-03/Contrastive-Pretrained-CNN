@@ -115,8 +115,7 @@ class CNN:
 				Sorted from first to last layer. 
 			
 			Each dictionary in the list has the gradient of the weights (either **'W'** or **'F'**) and bias of one layer:
-				* **'W'** (torch.Tensor): Gradient of the weights in the MLP. (local_output_dim, local_input_dim)
-				* **'F'** (torch.Tensor): Gradient of the weights in the convolution. (local_output_dim, local_input_dim)
+				* **'W'** (torch.Tensor): Gradient of the weights in the layer. (local_output_dim, local_input_dim)
 				* **'b'** (torch.Tensor): Gradient of the bias in one layer. (local_output_dim, 1)"""
 		
 		g_batch = -(Y_batch-P_batch).T # (batch_size, num_labels)
