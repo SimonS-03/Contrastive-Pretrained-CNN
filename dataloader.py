@@ -465,7 +465,6 @@ class Dataloader:
         data['X_train'] = self.normalize(X=data['X_train'])
 
         #Normalize
-        data['X_val'] -= self.X_mean
-        data['X_val'] /= self.X_std
+        data['X_val'] = self.normalize(X=data['X_val'], use_train_data=True)
 
         return data

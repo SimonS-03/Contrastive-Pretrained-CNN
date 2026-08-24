@@ -154,18 +154,20 @@ def test_total_backward():
 def test_overfit_small_sample():
 	debug_file = 'Datasets/debug_info.npz'
 	load_data = np.load(debug_file)
-	X = torch.tensor(load_data['X']).float() # (d, n)
-	Fs = torch.tensor(load_data['Fs']).float() # (f, f, rgb, nf)
+	X = torch.tensor(load_data['X']).float().requires_grad_() # (d, n)
+	Fs = torch.tensor(load_data['Fs']).float().requires_grad_() # (f, f, rgb, nf)
 
 	f = Fs.shape[0]
 	nf = 2
 	n = 100
+	rgb = 3
 
 	loader = dataloader.Dataloader()
 	X = X.T
 	X_ims = X.reshape(X.shape[0], 3, 32, 32).permute(2, 3, 1, 0)
+	loader.normalize(X=X_ims, use_train_data=False)
 
-	conv = convolution.Conv_Layer(filter_width=f, nf=nf, activation_function="ReLu")
+	conv = convolution.Conv_Layer(filter_width=f, nf=nf, activation_function="ReLu", channels=rgb)
 	#conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
 
 	mlp_1 = mlp.MLP_Layer(input_dim=load_data['conv_flat'].shape[0], output_dim=load_data['X1'].shape[1], activation_function="ReLu")
@@ -173,6 +175,8 @@ def test_overfit_small_sample():
 	mlp_2 = mlp.MLP_Layer(input_dim=load_data['X1'].shape[1], output_dim=load_data['P'].shape[0], activation_function="softmax")
 
 	cnn_test = cnn.CNN([conv, mlp_1, mlp_2])
+
+	cnn_test.dataloader = loader
 	
 	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-3, max_lr=5e-2)
 	adamW_optim = utils.AdamW()

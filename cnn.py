@@ -227,28 +227,41 @@ class CNN:
 			total_train_cost = 0
 			total_train_loss = 0
 			for j in range(num_minibatches):
-				with torch.no_grad():
-					#print(f"minibatch {j}")
-					batch_start = j*batch_size
-					batch_end = (j+1)*batch_size
+				#print(f"minibatch {j}")
+				batch_start = j*batch_size
+				batch_end = (j+1)*batch_size
 
-					X_batch = X_train_shuffled[..., batch_start:batch_end]
+				X_batch = X_train_shuffled[..., batch_start:batch_end]
+				with torch.no_grad():
 					X_aug = self.dataloader.augment_data(X=X_batch)
 					Mx_batch = self.dataloader.create_Mx(X=X_aug, filter_width=self.layers[0].filter_width)
-					P_batch = self.forward(Mx_batch, self.dropout_prob)
-					Y_batch = Y_train_shuffled[:, batch_start:batch_end]
-					batch_cost, batch_loss = self.__cost_function(P_batch, Y_batch)
+				P_batch = self.forward(Mx_batch, self.dropout_prob)
+				Y_batch = Y_train_shuffled[:, batch_start:batch_end]
+				batch_cost, batch_loss = self.__cost_function(P_batch, Y_batch)
 
-					total_train_cost += batch_cost
-					total_train_loss += batch_loss
+				total_train_cost += batch_cost.detach()
+				total_train_loss += batch_loss.detach()
 
+				lr = schedule.get_lr(update_step)
+				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
+
+				for param_set in params: # Zeroing gradients before loss calculation
+					param_set["W"].grad = None
+					param_set["b"].grad = None
+
+				batch_cost.backward()
+				with torch.no_grad():
+					auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.layers]
+					optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 					lr = schedule.get_lr(update_step)
-					params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
-					grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
-					optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
-					
 					self.__back_pass(lr, optim_grads)
-					update_step += 1
+
+				# REMOVED OUR OWN GRADIENT CALCULATION
+				#grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
+				#optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
+				#self.__back_pass(lr, optim_grads)
+				
+				update_step += 1
 			
 
 			if not show_plots or (i%epoch_plot_period != 0 and i != max_num_epochs-1): # We only need the lists below for plots
@@ -408,6 +421,7 @@ class CNN:
 		corrects = torch.isclose(guesses, y).float()
 
 		return torch.sum(corrects) / P.shape[1]
+
 	
 	def display_accuracy_histogram(self, X, y):
 		P = self.forward(X, dropout_prob=0) # (10, batch_size)
@@ -422,7 +436,8 @@ class CNN:
 		plt.show()
 
 		return torch.sum(corrects) / X.shape[1]
-	
+
+
 	def save_checkpoint(self, filepath: str):
 		"""Saves the weights, biases, history, and elapsed time to a file."""
 		model_state = []
@@ -440,6 +455,7 @@ class CNN:
 		}
 		torch.save(checkpoint, "Saved_Networks/" + filepath)
 		print(f"Checkpoint successfully saved to {filepath}")
+
 
 	def load_checkpoint(self, filepath: str):
 		"""Loads a checkpoint so you can resume training and plots."""
