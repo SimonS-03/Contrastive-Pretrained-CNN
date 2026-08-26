@@ -15,8 +15,6 @@ class MLP_Layer:
 		
 		self.activation_function = activation_function
 		"""The activation function of the layer. Can be ReLU, softmax. """
-		self.rng = self.__initialize_seed(seed)
-		"""The random number generator. """
 		self.W = None
 		"""The weight matrix. (output_dim, input_dim)"""
 		self.b = None
@@ -24,22 +22,6 @@ class MLP_Layer:
 		self.h = None
 		"""The activation output. (output_dim, n)"""
 		self.__initialize_model(input_dim=input_dim, output_dim=output_dim)
-	
-
-	def __initialize_seed(self, seed:int) -> torch.Generator:
-		"""Initialize the random number generator. 
-		
-		Args:
-			seed (int): The seed. 
-		
-		Returns:
-			rng (Generator): The random number generator. """
-		
-		rng = torch.Generator()
-		
-		rng.manual_seed(seed)
-
-		return rng
 
 
 	def __initialize_model(self, input_dim:int, output_dim:int) -> None:
@@ -49,9 +31,9 @@ class MLP_Layer:
 				input_dim (int): Dimension of input. 
 				output_dim (int): Dimension of output. """
 		if self.activation_function == "softmax":
-			self.W = 0.01 * torch.randn(size=(output_dim, input_dim), generator=self.rng)
+			self.W = 0.01 * torch.randn(size=(output_dim, input_dim))
 		else:
-			self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim), generator=self.rng)
+			self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim))
 		
 		self.W.requires_grad = True
 		self.b = torch.zeros((output_dim, 1), requires_grad=True)

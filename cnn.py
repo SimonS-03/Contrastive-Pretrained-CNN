@@ -24,8 +24,6 @@ class CNN:
 		"""Probability of a node being turned off for each update step. """
 		self.dataloader = Dataloader()
 		"""The dataloader class for this CNN. """
-		self.rng = self.__initialize_seed(seed)
-		"""The random number generator for this CNN. """
 
 		self.history = {
 			'epochs': [], 'train_costs': [], 'train_losses': [],
@@ -38,21 +36,6 @@ class CNN:
 	
 		self.current_epoch = 0
 		"""Current epoch. """
-	
-	def __initialize_seed(self, seed:int) -> torch.Generator:
-		"""Initialize the random number generator. 
-		
-		Args:
-			seed (int): The seed. 
-		
-		Returns:
-			rng (Generator): The random number generator. """
-		
-		rng = torch.Generator()
-		
-		rng.manual_seed(seed)
-	
-		return rng
 
 
 	def forward(self, x: torch.Tensor, dropout_prob:float) -> torch.Tensor:
@@ -89,7 +72,7 @@ class CNN:
 		cross_entropy = self.__cross_entropy_loss(p, Y_batch)
 		
 		reg = 0
-		for layer in self.layers:
+		for layer in self.__param_layers:
 			cur_weights = layer.W
 			reg += self.lam * torch.sum(cur_weights**2)
 
@@ -182,12 +165,19 @@ class CNN:
 			"""
 
 		for i in range(len(grads)):
-			cur_layer = self.layers[i]
+			cur_layer = self.__param_layers[i]
 			with torch.no_grad():
 				cur_layer.W.data -= lr * grads[i]['W']
 				cur_layer.b.data -= lr * grads[i]['b']
 				#print(f"Mag of W after back pass: {cur_layer.W.norm()}")
 				#print(f"Mag of b after back pass: {cur_layer.b.norm()}")
+
+
+	@property
+	def __param_layers(self) -> list:
+		"""List of the layers that have tunable parameters (all except the pooling layers). """
+
+		return [l for l in self.layers if not isinstance(l, Pool_Layer)]
 
 
 	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
@@ -225,7 +215,7 @@ class CNN:
 			#print(f"Started epoch {i}")
 			self.current_epoch += 1
 
-			permutation = torch.randperm(n_datapoints, generator=self.rng)
+			permutation = torch.randperm(n_datapoints)
 			if shuffle_set:
 				X_train_shuffled = X_train[..., permutation]
 				Y_train_shuffled = Y_train[:, permutation]
@@ -251,7 +241,7 @@ class CNN:
 				total_train_loss += batch_loss.detach()
 
 				lr = schedule.get_lr(update_step)
-				params = [{"W": layer.W, "b": layer.b} for layer in self.layers]
+				params:dict[str, torch.Tensor] = [{"W": layer.W, "b": layer.b} for layer in self.__param_layers]
 
 				for param_set in params: # Zeroing gradients before loss calculation
 					param_set["W"].grad = None
@@ -259,7 +249,7 @@ class CNN:
 
 				batch_cost.backward()
 				with torch.no_grad():
-					auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.layers]
+					auto_grads:dict[str, float] = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.__param_layers]
 					optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 					lr = schedule.get_lr(update_step)
 					self.__back_pass(lr, optim_grads)
@@ -341,7 +331,7 @@ class CNN:
 			for i in pbar:
 				if debug_logs: print(f"Started epoch {i}")
 
-				permutation = torch.randperm(X_train.shape[-1], generator=self.rng)
+				permutation = torch.randperm(X_train.shape[-1])
 				if shuffle_set:
 					X_train_shuffled = X_train_shuffled[..., permutation]
 		
@@ -449,7 +439,7 @@ class CNN:
 	def save_checkpoint(self, filepath: str):
 		"""Saves the weights, biases, history, and elapsed time to a file."""
 		model_state = []
-		for layer in self.layers:
+		for layer in self.__param_layers:
 			layer_state = {
 				"W": layer.W.detach().cpu().clone(),
 				"b": layer.b.detach().cpu().clone()
@@ -482,11 +472,11 @@ class CNN:
 			self.total_training_time = checkpoint.get("total_training_time", 0.0)
 			self.current_epoch = checkpoint.get("current_epoch", 0)
 
-		if len(model_state) != len(self.layers):
+		if len(model_state) != len(self.__param_layers):
 			raise ValueError("The loaded model has a different number of layers than the current model!")
 			
 		with torch.no_grad():
-			for layer, loaded_state in zip(self.layers, model_state):
+			for layer, loaded_state in zip(self.__param_layers, model_state):
 				layer.W.copy_(loaded_state["W"])
 				layer.W.requires_grad = True
 				layer.b.copy_(loaded_state["b"])

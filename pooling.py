@@ -5,21 +5,16 @@ class Pool_Layer:
 			
 	Args:
 		kernel (int): The kernel size (kernel x kernel). 
-		stride (int): The stride. """
+		stride (int): The stride. 
+		padding (int): Padding of the image. """
 
 
-	def __init__(self, kernel:int, stride:int) -> None:
-		self.nn_layer = torch.nn.MaxPool2d(kernel_size=kernel, stride=stride)
+	def __init__(self, kernel:int, stride:int, padding:int) -> None:
+		self.nn_layer = torch.nn.MaxPool2d(kernel_size=kernel, stride=stride, padding=padding)
 		"""The built-in pooling layer. """
 
 		self.h:torch.Tensor = None
 		"""Activation of the pooling layer. ([h-kernel]/stride+1, [w-kernel]/stride+1)"""
-
-		self.W:torch.Tensor = self.nn_layer.weight
-		"""The weights of the network. """
-
-		self.b:torch.Tensor = self.nn_layer.bias
-		"""The bias of the network. """
 
 
 	def forward(self, X:torch.Tensor, dropout_prob:float=0) -> torch.Tensor:
@@ -27,7 +22,10 @@ class Pool_Layer:
 		
 		Args:
 			X (torch.Tensor): The input "image". (h, w, nf, n)
-			dropout_prob (float): Is not used in pooling, but needed for coding consistency between layers. """
+			dropout_prob (float): Is not used in pooling, but needed for coding consistency between layers. 
+			
+		Returns: 
+			h (torch.Tensor): The output activations. [height-kernel+2\*padding]/stride+1, [width-kernel+2\*padding]/stride+1, number of filters, number of images"""
 
 		#Permute for the built in functions sake
 		X_perm = X.permute(3, 2, 0, 1).contiguous() # (n, nf, h, w)

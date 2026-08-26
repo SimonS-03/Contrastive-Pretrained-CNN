@@ -12,8 +12,6 @@ class Conv_Layer:
 	
 	def __init__(self, filter_width: int, channels:int, nf: int, activation_function: str, stride:int, padding:int):
 
-		torch.manual_seed(42)
-
 		self.h:torch.Tensor = None
 		"""Activation of conv. layer. (n_p*nf, batch_size)"""
 

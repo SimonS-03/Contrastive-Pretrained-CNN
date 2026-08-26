@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import pickle
-import mlp, cnn, convolution, dataloader
+import mlp, cnn, convolution, dataloader, pooling
 import utils
 import datetime
 
@@ -152,15 +152,19 @@ def test_total_backward():
 
 
 def test_overfit_small_sample():
+	torch.manual_seed(42)
+
 	debug_file = 'Datasets/debug_info.npz'
 	load_data = np.load(debug_file)
 	X = torch.tensor(load_data['X']).float() # (d, n)
-	Fs = torch.tensor(load_data['Fs']).float() # (f, f, rgb, nf)
+	#Fs = torch.tensor(load_data['Fs']).float() # (f, f, rgb, nf)
 
-	f = Fs.shape[0]
-	#f = 3
-	nf = 2
-	#nf = 128
+	#f = Fs.shape[0]
+	f = 3
+	stride = 1
+	padding = 1
+	#nf = 2
+	nf = 128
 	n = 100
 	rgb = 3
 
@@ -169,18 +173,35 @@ def test_overfit_small_sample():
 	X_ims = X.reshape(X.shape[0], 3, 32, 32).permute(2, 3, 1, 0)
 	loader.normalize(X=X_ims, use_train_data=False)
 
-	conv_1 = convolution.Conv_Layer(filter_width=f, channels=rgb, nf=nf, activation_function="ReLu", stride=f, padding=0)
+	conv_1 = convolution.Conv_Layer(filter_width=f, channels=rgb, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
 	#conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
 
-	mlp_1 = mlp.MLP_Layer(input_dim=load_data['conv_flat'].shape[0], output_dim=load_data['X1'].shape[1], activation_function="ReLu")
+	conv_2 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
 
-	mlp_2 = mlp.MLP_Layer(input_dim=load_data['X1'].shape[1], output_dim=load_data['P'].shape[0], activation_function="softmax")
+	pool_1 = pooling.Pool_Layer(kernel=2, stride=2, padding=0)
 
-	cnn_test = cnn.CNN([conv_1, mlp_1, mlp_2])
+	conv_3 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+	
+	conv_4 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+
+	pool_2 = pooling.Pool_Layer(kernel=2, stride=2, padding=0)
+
+	conv_5 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+	
+	pool_3 = pooling.Pool_Layer(kernel=2, stride=2, padding=0)
+
+	#mlp_1 = mlp.MLP_Layer(input_dim=load_data['conv_flat'].shape[0], output_dim=load_data['X1'].shape[1], activation_function="ReLu")
+	mlp_1 = mlp.MLP_Layer(input_dim=(32//2**3)**2*nf, output_dim=400, activation_function="ReLu")
+
+	mlp_2 = mlp.MLP_Layer(input_dim=400, output_dim=400, activation_function="ReLu")
+
+	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=load_data['P'].shape[0], activation_function="softmax")
+
+	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3])
 
 	cnn_test.dataloader = loader
 	
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-3, max_lr=5e-2)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-4, max_lr=1e-3)
 	adamW_optim = utils.AdamW()
 	cnn_test.minibatchGD(X_train=X_ims, Y_train=torch.tensor(load_data['Y']).float()[:, :n], y_train=torch.tensor(load_data['y']).float()[:n], X_val=X_ims, \
 					  Y_val=torch.tensor(load_data['Y']).float()[:, :n], y_val=torch.tensor(load_data['y']).float()[:n], schedule=cyclic_schedule, optim=adamW_optim, batch_size=5, max_num_epochs=200)
