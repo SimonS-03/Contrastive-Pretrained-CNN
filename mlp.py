@@ -62,6 +62,7 @@ class MLP_Layer:
 		
 		Args:
 			X (torch.Tensor): The input data. (input_dim, n). 
+			dropout_prob (float): Probability of an output node being turned off for the forward pass.
 					
 		Returns:
 			output (torch.Tensor): The output of the perceptron layer. (output_dim, n)"""

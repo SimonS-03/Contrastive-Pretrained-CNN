@@ -154,11 +154,13 @@ def test_total_backward():
 def test_overfit_small_sample():
 	debug_file = 'Datasets/debug_info.npz'
 	load_data = np.load(debug_file)
-	X = torch.tensor(load_data['X']).float().requires_grad_() # (d, n)
-	Fs = torch.tensor(load_data['Fs']).float().requires_grad_() # (f, f, rgb, nf)
+	X = torch.tensor(load_data['X']).float() # (d, n)
+	Fs = torch.tensor(load_data['Fs']).float() # (f, f, rgb, nf)
 
 	f = Fs.shape[0]
+	#f = 3
 	nf = 2
+	#nf = 128
 	n = 100
 	rgb = 3
 
@@ -167,14 +169,14 @@ def test_overfit_small_sample():
 	X_ims = X.reshape(X.shape[0], 3, 32, 32).permute(2, 3, 1, 0)
 	loader.normalize(X=X_ims, use_train_data=False)
 
-	conv = convolution.Conv_Layer(filter_width=f, nf=nf, activation_function="ReLu", channels=rgb)
+	conv_1 = convolution.Conv_Layer(filter_width=f, channels=rgb, nf=nf, activation_function="ReLu", stride=f, padding=0)
 	#conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
 
 	mlp_1 = mlp.MLP_Layer(input_dim=load_data['conv_flat'].shape[0], output_dim=load_data['X1'].shape[1], activation_function="ReLu")
 
 	mlp_2 = mlp.MLP_Layer(input_dim=load_data['X1'].shape[1], output_dim=load_data['P'].shape[0], activation_function="softmax")
 
-	cnn_test = cnn.CNN([conv, mlp_1, mlp_2])
+	cnn_test = cnn.CNN([conv_1, mlp_1, mlp_2])
 
 	cnn_test.dataloader = loader
 	
@@ -474,4 +476,5 @@ def cifar_minibatch():
 	cnn_final.save_checkpoint("test_first_cifar")
 
 if __name__ == "__main__":
-	test_train_augment_tiny()
+	#test_train_augment_tiny()
+	test_overfit_small_sample()

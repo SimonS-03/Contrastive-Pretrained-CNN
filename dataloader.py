@@ -40,6 +40,8 @@ class Dataloader:
             
         Returns:
             Mx (torch.Tensor): The Mx matrix. (width*height/f^2, rgb*f^2, n)"""
+
+
         
         height, width, rgb, n = X.shape
         f = filter_width

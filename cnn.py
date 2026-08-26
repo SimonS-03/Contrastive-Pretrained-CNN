@@ -3,6 +3,7 @@ import torch
 import tqdm
 from dataloader import Dataloader
 from convolution import Conv_Layer
+from pooling import Pool_Layer
 from mlp import MLP_Layer
 from utils import *
 import numpy as np
@@ -54,19 +55,23 @@ class CNN:
 		return rng
 
 
-	def forward(self, Mx: torch.Tensor, dropout_prob:float):
-		"""Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)"""
-		x = Mx
-		prev_Mx_format = Mx.shape
+	def forward(self, x: torch.Tensor, dropout_prob:float) -> torch.Tensor:
+		"""Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)
+		
+		Args:
+			x (torch.Tensor): The input of the whole network. (height, width, nf, n)
+			dropout_prob (float): Probability of an output node being turned off for the forward pass.
+			
+		Returns:
+			x (torch.Tensor): The output of the whole network. (output_dim, n)"""
+
 		prev_layer = None
 		for layer in self.layers:
-			if prev_layer != None and isinstance(layer, Conv_Layer):
-				new_pixels = prev_Mx_format[0] # old nbr patches
-				old_nf = prev_layer.nf
-				
-				x = x.reshape(int(torch.math.sqrt(new_pixels)), int(torch.math.sqrt(new_pixels)), old_nf, prev_Mx_format[-1])
-				x = self.dataloader.create_Mx(x, layer.filter_width)
-				prev_Mx_format = x.shape
+
+			if prev_layer != None and not isinstance(prev_layer, MLP_Layer) and isinstance(layer, MLP_Layer): # If MLP and prev layer is not MLP
+
+				#Flatten input
+				x = x.reshape(x.shape[0]*x.shape[1]*x.shape[2], x.shape[3])
 
 			x = layer.forward(x, dropout_prob)
 			if torch.any(x.isnan()):
@@ -99,7 +104,13 @@ class CNN:
 			Y_batch (torch.Tensor): The actual one-hot labels. (n_classes, n)
 			eps (float): Small number to avoid overflow errors when doing log(p). """
 
-		return torch.mean(torch.sum(-Y_batch*torch.log(p+eps), axis = 0))
+		Y_P = -Y_batch*torch.log(p+eps) # (n_classes, n)
+
+		yp_sum = torch.sum(Y_P, axis = 0) # (n)
+
+		yp_mean = torch.mean(yp_sum) # (1)
+
+		return yp_mean
 
 
 	def get_gradient(self, Mx_batch:torch.Tensor, Y_batch:torch.Tensor, P_batch:torch.Tensor) -> list[dict]:
@@ -201,10 +212,6 @@ class CNN:
 		n_datapoints = X_train.shape[3]
 		num_minibatches = int(n_datapoints / batch_size)
 
-		X_train_shuffled = X_train.clone()
-		Y_train_shuffled = Y_train.clone()
-		Mx_train = self.dataloader.create_Mx(X_train, filter_width=self.layers[0].filter_width)
-		Mx_val = self.dataloader.create_Mx(X_val, filter_width=self.layers[0].filter_width)
 		val_cost = torch.inf
 		
 		if show_plots:
@@ -220,8 +227,8 @@ class CNN:
 
 			permutation = torch.randperm(n_datapoints, generator=self.rng)
 			if shuffle_set:
-				X_train_shuffled = X_train_shuffled[..., permutation]
-				Y_train_shuffled = Y_train_shuffled[:, permutation]
+				X_train_shuffled = X_train[..., permutation]
+				Y_train_shuffled = Y_train[:, permutation]
 	
 			
 			total_train_cost = 0
@@ -233,9 +240,10 @@ class CNN:
 
 				X_batch = X_train_shuffled[..., batch_start:batch_end]
 				with torch.no_grad():
-					X_aug = self.dataloader.augment_data(X=X_batch)
-					Mx_batch = self.dataloader.create_Mx(X=X_aug, filter_width=self.layers[0].filter_width)
-				P_batch = self.forward(Mx_batch, self.dropout_prob)
+					#X_aug = self.dataloader.augment_data(X=X_batch)
+					X_aug = X_batch
+					
+				P_batch = self.forward(X_aug, self.dropout_prob)
 				Y_batch = Y_train_shuffled[:, batch_start:batch_end]
 				batch_cost, batch_loss = self.__cost_function(P_batch, Y_batch)
 
@@ -272,14 +280,14 @@ class CNN:
 				self.history['train_costs'].append((total_train_cost.detach()/num_minibatches).item())
 				self.history['train_losses'].append((total_train_loss.detach()/num_minibatches).item())
 				
-				P_val = self.forward(Mx_val, dropout_prob=0)
+				P_val = self.forward(X_val, dropout_prob=0)
 				val_cost, val_loss = self.__cost_function(P_val, Y_val)
 				self.history['val_costs'].append(val_cost.detach().item())
 				self.history['val_losses'].append(val_loss.detach().item())
 			
-				if Mx_val is not None and y_val is not None and y_train is not None:
-					self.history['val_accuracys'].append(self.get_accuracy(Mx_val, y_val).item())
-					self.history['train_accuracys'].append(self.get_accuracy(Mx_train, y_train).item())
+				if X_val is not None and y_val is not None and y_train is not None:
+					self.history['val_accuracys'].append(self.get_accuracy(X_val, y_val).item())
+					self.history['train_accuracys'].append(self.get_accuracy(X_train, y_train).item())
 
 			pbar.set_postfix(loss = f"{round(val_loss.item(), 4)}")
 			

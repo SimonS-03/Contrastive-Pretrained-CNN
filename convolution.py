@@ -1,71 +1,71 @@
 import torch
-from utils import dropout
 
 class Conv_Layer:
 	"""Create a convolution layer. Initilization done with He init.
 	Args:
-		filter_width: the number of units across for the filers.
-		nf: number of filters
-		activation_function: must be from {"ReLu"}"""
-	def __init__(self, filter_width: int, nf: int, channels: int, activation_function: str):
-		self.filter_width = filter_width
-		"""Width of the filter. """
-		self.nf = nf
-		"""Number of filter. """
-		self.filter_entries = filter_width**2 * channels # Square filter, 3 (or prev nf) channels
-		"""Number of items in each filter. """
-		self.n_p = None
-		"""Number of filter patches per image. """
+		filter_width (int): the number of units across for the filers.
+		channels (int): Number of input channels. 
+		nf (int): Number of filters, also number of output channels. 
+		activation_function (str): must be from {"ReLu"}
+		stride (int): Stride of the filter. 
+		padding (int): Padding of the image. """
+	
+	def __init__(self, filter_width: int, channels:int, nf: int, activation_function: str, stride:int, padding:int):
 
-		rng = torch.Generator()
-		seed = 42
-		rng.manual_seed(seed)
-		self.rng = rng
+		torch.manual_seed(42)
 
-		self.W = torch.normal(mean=0, std=torch.math.sqrt(2/self.filter_entries), size=(self.filter_entries, self.nf), generator=rng, requires_grad=True) 
-		"""Filters. (filter_entries, nf)"""
-
-		self.b = torch.zeros(size=(self.nf, 1), requires_grad=True)
-		"""Filter bias. (filter_entries, nf)"""
-
-		self.h = None
+		self.h:torch.Tensor = None
 		"""Activation of conv. layer. (n_p*nf, batch_size)"""
 
+		self.nn_layer = torch.nn.Conv2d(in_channels=channels, out_channels=nf, kernel_size=filter_width, stride=stride, padding=padding)
+		"""The built-in convolution layer. """
+
+		self.__initialize_layer()
+
+		self.W:torch.Tensor = self.nn_layer.weight
+		"""The weights of the network. """
+
+		self.b:torch.Tensor = self.nn_layer.bias
+		"""The bias of the network. """
+
 		self.activation_function = activation_function
-	
-	def forward(self, Mx: torch.Tensor, dropout_prob: float) -> torch.Tensor:
+
+
+	def __initialize_layer(self) -> None:
+		"""Call this function after initializing self.nn_layer. The function initializes the layer with He initialization. """
+
+		# He/Kaiming initialization
+		torch.nn.init.kaiming_normal_(self.nn_layer.weight, mode='fan_in', nonlinearity='relu')
+		torch.nn.init.zeros_(self.nn_layer.bias)
+
+
+	def forward(self, X:torch.Tensor, dropout_prob:float) -> torch.Tensor:
 		"""Does the forward pass.
-		
+				
 		Args:
-			Mx (torch.Tensor): The Mx matrix. (width*height/f^2, rgb*f^2, n)
-			dropout_prob (float): Probability of a node being turned off for the forward pass.
+			X (torch.Tensor): The input matrix. (height, width, number of filters, number of images)
+			dropout_prob (float): Probability of an output node being turned off for the forward pass.
 		
 		Returns:
-			h (torch.Tensor): The output from the layer. (width*height/f^2*n_f, batch_size)"""
-		
-		n_patches = Mx.shape[0] # Mx has shape (n_patches, filter_entries, batch_size)
-		self.n_p = n_patches
-		
-		pre_act = torch.einsum("ijn, jl -> iln", Mx, self.W) + self.b.reshape(1, self.nf, 1) #(np, nf, batch_size)
-		pre_act_reshaped = pre_act.reshape(n_patches*self.nf, pre_act.shape[2]) # (n_p*n_f, batch_size)
+			h (torch.Tensor): The output from the layer. ([height-filter_width+2\*padding]/stride+1, [width-filter_width+2\*padding]/stride+1, number of filters, number of images)"""
+
+		#Permute for the built in functions sake
+		X_perm = X.permute(3, 2, 0, 1).contiguous() # (n, nf, h, w)
+
+		#Do the convolution
+		pre_act_perm:torch.Tensor = self.nn_layer(X_perm)
+
+		#Permute back
+		pre_act = pre_act_perm.permute(2, 3, 1, 0).contiguous() # (h, w, nf, n)
 
 		act = None
 		if self.activation_function == "ReLu": 
-			act = torch.relu(pre_act_reshaped)
+			act = torch.relu(pre_act)
 		else: # TODO: implement softmax?
 			raise ValueError("Activation function in layer not registered/implemented, returning None.")
 
-		
-		#act_drop = dropout(act, dropout_prob)
-		#safety = 0
-		#while(torch.all(act_drop == 0)):
-		#	act_drop = dropout(act, dropout_prob)
-		#	safety += 1
-		#	if safety > 100:
-		#		print("Activation will be zero due to safety break in dropout loop!")
-		#		break
-
 		self.h = torch.nn.functional.dropout(act, dropout_prob, training=True)
+
 		return self.h
 			
 
