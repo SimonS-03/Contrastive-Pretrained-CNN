@@ -1,20 +1,22 @@
 import torch
 from utils import dropout
 class MLP_Layer:
-	"""One layer of an MLP. """
+	"""One layer of an MLP. 
+	
+	Args:
+		input_dim (int): Dimension of input. 
+		output_dim (int): Dimension of output. 
+		activation_function (str): The activation function of the layer. Can be ReLU, softmax.
+		device (str): Which device to run the layer on. (cpu)"""
 
 
-	def __init__(self, input_dim:int, output_dim:int, activation_function:str, seed:int=42):
-		"""Initialize the MLP layer. 
-		
-		Args:
-			input_dim (int): Dimension of input. 
-			output_dim (int): Dimension of output. 
-			activation_function (str): The activation function of the layer. Can be ReLU, softmax.
-			seed (int): The seed for the random number generator. """
+	def __init__(self, input_dim:int, output_dim:int, activation_function:str, device:str="cpu"):
+		"""Initialize the MLP layer.  """
 		
 		self.activation_function = activation_function
 		"""The activation function of the layer. Can be ReLU, softmax. """
+		self.device:str = device
+		"""The device that the layer runs on. """
 		self.W = None
 		"""The weight matrix. (output_dim, input_dim)"""
 		self.b = None
@@ -31,20 +33,21 @@ class MLP_Layer:
 				input_dim (int): Dimension of input. 
 				output_dim (int): Dimension of output. """
 		if self.activation_function == "softmax":
-			self.W = 0.01 * torch.randn(size=(output_dim, input_dim))
+			self.W = 0.01 * torch.randn(size=(output_dim, input_dim), device=self.device)
 		else:
-			self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim))
+			self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim), device=self.device)
 		
 		self.W.requires_grad = True
-		self.b = torch.zeros((output_dim, 1), requires_grad=True)
+		self.b = torch.zeros((output_dim, 1), device=self.device, requires_grad=True)
 
 
-	def forward(self, X:torch.Tensor, dropout_prob: float=0) -> torch.Tensor:
+	def forward(self, X:torch.Tensor, dropout_prob: float=0, check_nan: bool=False) -> torch.Tensor:
 		"""Returns p and intermediary activation values. 
 		
 		Args:
 			X (torch.Tensor): The input data. (input_dim, n). 
 			dropout_prob (float): Probability of an output node being turned off for the forward pass.
+			check_nan (bool): If we should check for NaN in the activation nodes. It is time inefficient. 
 					
 		Returns:
 			output (torch.Tensor): The output of the perceptron layer. (output_dim, n)"""
@@ -58,7 +61,7 @@ class MLP_Layer:
 		elif self.activation_function == "softmax":
 			act = torch.softmax(s, dim=0)
 			self.h = act
-			if torch.any(self.h.isnan()):
+			if check_nan and torch.any(self.h.isnan()):
 				raise ValueError("Some values are NaN after doing softmax. ")
 			return self.h
 		elif self.activation_function == "linear":
@@ -84,7 +87,7 @@ class MLP_Layer:
 		
 		self.h = torch.nn.functional.dropout(act, p=dropout_prob, training=True)
 
-		if torch.any(self.h.isnan()):
+		if check_nan and torch.any(self.h.isnan()):
 			raise ValueError("Some values are NaN after normal MLP. ")
 
 		return self.h

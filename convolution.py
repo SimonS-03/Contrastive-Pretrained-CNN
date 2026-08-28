@@ -8,14 +8,18 @@ class Conv_Layer:
 		nf (int): Number of filters, also number of output channels. 
 		activation_function (str): must be from {"ReLu"}
 		stride (int): Stride of the filter. 
-		padding (int): Padding of the image. """
+		padding (int): Padding of the image. 
+		devide (str): Which device to run the layer on. (cpu)"""
 	
-	def __init__(self, filter_width: int, channels:int, nf: int, activation_function: str, stride:int, padding:int):
+	def __init__(self, filter_width: int, channels:int, nf: int, activation_function: str, stride:int, padding:int, device:str="cpu"):
 
 		self.h:torch.Tensor = None
 		"""Activation of conv. layer. (n_p*nf, batch_size)"""
 
-		self.nn_layer = torch.nn.Conv2d(in_channels=channels, out_channels=nf, kernel_size=filter_width, stride=stride, padding=padding)
+		self.device:str = device
+		"""The device that the layer runs on. """
+
+		self.nn_layer = torch.nn.Conv2d(in_channels=channels, out_channels=nf, kernel_size=filter_width, stride=stride, padding=padding).to(device=device)
 		"""The built-in convolution layer. """
 
 		self.__initialize_layer()
@@ -41,20 +45,15 @@ class Conv_Layer:
 		"""Does the forward pass.
 				
 		Args:
-			X (torch.Tensor): The input matrix. (height, width, number of filters, number of images)
+			X (torch.Tensor): The input matrix. (number of images, number of filters, height, weight)
 			dropout_prob (float): Probability of an output node being turned off for the forward pass.
 		
 		Returns:
 			h (torch.Tensor): The output from the layer. ([height-filter_width+2\*padding]/stride+1, [width-filter_width+2\*padding]/stride+1, number of filters, number of images)"""
 
-		#Permute for the built in functions sake
-		X_perm = X.permute(3, 2, 0, 1).contiguous() # (n, nf, h, w)
-
+		
 		#Do the convolution
-		pre_act_perm:torch.Tensor = self.nn_layer(X_perm)
-
-		#Permute back
-		pre_act = pre_act_perm.permute(2, 3, 1, 0).contiguous() # (h, w, nf, n)
+		pre_act:torch.Tensor = self.nn_layer(X)
 
 		act = None
 		if self.activation_function == "ReLu": 

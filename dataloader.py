@@ -181,12 +181,12 @@ class Dataloader:
         X_aug = self.unnormalize01(X.clone()) # Unnormalized it, and transforms the range back to 0-1
 
         # Torchvision augmentation
-        X_aug_perm = X_aug.permute(3, 2, 0, 1).clone()
+        X_aug_perm = X_aug.permute(3, 2, 0, 1)
         #augmented_images = [self.augmentations(X_aug_perm[i]) for i in range(X_aug_perm.shape[0])]
         #X_aug_perm = torch.stack(augmented_images)
         X_aug_perm = torch.stack([self.augmentations(X_aug_perm[i]) for i in range(X_aug_perm.shape[0])])
         #print(X_aug_perm.shape)
-        X_aug = X_aug_perm.permute(2, 3, 1, 0).clone()
+        X_aug = X_aug_perm.permute(2, 3, 1, 0).contiguous()
 
 
         # Own augmentation implementations

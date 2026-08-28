@@ -7,15 +7,16 @@ from pooling import Pool_Layer
 from mlp import MLP_Layer
 from utils import *
 import numpy as np
+import time
 
 class CNN:
-	def __init__(self, layers: list[Conv_Layer | MLP_Layer], lam: float = 0, dropout_prob:float=0, seed:int=42):
+	def __init__(self, layers: list[Conv_Layer | MLP_Layer | Pool_Layer], lam: float = 0, dropout_prob:float=0, device:str="cpu"):
 		"""Creates a linear classifier with 10 output classes.
 		Args:
-			layers (list[Conv_Layer | MLP_Layer]): A list of either convolution-layers or mlp-layers, already initialized.
+			layers (list[Conv_Layer | MLP_Layer | Pool_Layer]): A list of either convolution-layers or mlp-layers, already initialized.
 			lam (float): The lambda used in L2 regularization of the layers during backward pass. 
 			dropout_prob (float): Probability of a node being turned off for each update step. 
-			seed (int): The seed for the random number generator. """
+			devide (str): Which device to run the layer on. (cpu, mps)"""
 		self.layers = layers
 		"""All the neural network layers. """
 		self.lam = lam
@@ -24,6 +25,8 @@ class CNN:
 		"""Probability of a node being turned off for each update step. """
 		self.dataloader = Dataloader()
 		"""The dataloader class for this CNN. """
+		self.device:str = device
+		"""The device that the CNN runs on. """
 
 		self.history = {
 			'epochs': [], 'train_costs': [], 'train_losses': [],
@@ -37,6 +40,37 @@ class CNN:
 		self.current_epoch = 0
 		"""Current epoch. """
 
+		self.__to(device)
+
+
+	def __to(self, device:str) -> None:
+		"""Sets all the layers to the correct device. 
+		
+		Args:
+			device (str): The device to set the layers to. (cpu, mps)"""
+
+		for layer in self.layers:
+			if isinstance(layer, Pool_Layer) or isinstance(layer, Conv_Layer):
+				layer.device = device
+				layer.nn_layer = layer.nn_layer.to(device=device)
+
+			if isinstance(layer, Conv_Layer):
+				layer.W = layer.nn_layer.weight
+				layer.b = layer.nn_layer.bias
+
+			if isinstance(layer, MLP_Layer):
+				layer.W = layer.W.detach().to(device).requires_grad_()
+				layer.b = layer.b.detach().to(device).requires_grad_()
+
+
+	def sync(self) -> None:
+		"""Syncronizes the code. """
+
+		if self.device == "mps" and torch.backends.mps.is_available():
+			torch.mps.synchronize()
+		elif self.device == "cuda" and torch.cuda.is_available():
+			torch.cuda.synchronize()
+	
 
 	def forward(self, x: torch.Tensor, dropout_prob:float) -> torch.Tensor:
 		"""Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)
@@ -51,20 +85,26 @@ class CNN:
 		prev_layer = None
 		for layer in self.layers:
 
+			if prev_layer == None and (isinstance(layer, Conv_Layer) or isinstance(layer, Pool_Layer)):
+				x = x.permute(3, 2, 0, 1).contiguous() # (n, nf, h, w)
+
 			if prev_layer != None and not isinstance(prev_layer, MLP_Layer) and isinstance(layer, MLP_Layer): # If MLP and prev layer is not MLP
 
+				#Permute back
+				x = x.permute(2, 3, 1, 0).contiguous() # (h, w, nf, n)
+			
 				#Flatten input
 				x = x.reshape(x.shape[0]*x.shape[1]*x.shape[2], x.shape[3])
 
 			x = layer.forward(x, dropout_prob)
-			if torch.any(x.isnan()):
-				raise ValueError("One item is NaN. ")
+			#if torch.any(x.isnan()):
+			#	raise ValueError("One item is NaN. ")
 			prev_layer = layer
 			
 		return x
 
 
-	def __cost_function(self, p: torch.Tensor, Y_batch: torch.Tensor):
+	def cost_function(self, p: torch.Tensor, Y_batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
 		"""Calculated the mean cross-entropy loss of a set of 
 		predicted class probabilites"""
 		# both have dimensions (10, batch_size)
@@ -73,19 +113,22 @@ class CNN:
 		
 		reg = 0
 		for layer in self.__param_layers:
-			cur_weights = layer.W
+			cur_weights:torch.Tensor = layer.W
 			reg += self.lam * torch.sum(cur_weights**2)
 
 		return cross_entropy + reg, cross_entropy
 
 
-	def __cross_entropy_loss(self, p: torch.Tensor, Y_batch: torch.Tensor, eps:float=1e-10) -> float:
+	def __cross_entropy_loss(self, p: torch.Tensor, Y_batch: torch.Tensor, eps:float=1e-10) -> torch.Tensor:
 		"""Calculates the cross entropy loss. 
 		
 		Args:
 			p (torch.Tensor): The calculated probabilites. (n_classes, n)
 			Y_batch (torch.Tensor): The actual one-hot labels. (n_classes, n)
-			eps (float): Small number to avoid overflow errors when doing log(p). """
+			eps (float): Small number to avoid overflow errors when doing log(p). 
+			
+		Returns:
+			yp_mean (torch.Tensor): The cross entropy loss. (1)"""
 
 		Y_P = -Y_batch*torch.log(p+eps) # (n_classes, n)
 
@@ -182,7 +225,8 @@ class CNN:
 
 	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
 				 y_val:torch.Tensor, schedule: lr_schedule, optim: optimizer, max_num_epochs: int = 40, batch_size: int = 100, 
-					shuffle_set: bool = True, show_plots: bool = True, epoch_plot_period: int = 10):
+					shuffle_set: bool = True, show_plots: bool = True, epoch_plot_period: int = 10, profile:bool=False, 
+					profile_batches:int=10):
 		""" Does end-to-end minibatch gradient descent with the given training data. 
 		
 		Args:
@@ -199,6 +243,14 @@ class CNN:
 			shuffle_set (bool): If the data set should be randomly shuffled at before each epoch. 
 			show_plots (bool): If plots of the training and validation loss, cost and accuracy should be displayed at the end. """
 
+		#Set all the data to the same device
+		X_train = X_train.to(self.device)
+		Y_train = Y_train.to(self.device)
+		X_val = X_val.to(self.device)
+		Y_val = Y_val.to(self.device)
+		y_train = y_train.to(self.device)
+		y_val = y_val.to(self.device)
+
 		n_datapoints = X_train.shape[3]
 		num_minibatches = int(n_datapoints / batch_size)
 
@@ -210,6 +262,9 @@ class CNN:
 
 		pbar = tqdm.tqdm(range(max_num_epochs))
 		update_step = 1
+
+		timings = {"data_slice": 0.0, "forward": 0.0, "cost": 0.0, "backward": 0.0, "optim_step": 0.0, "param_update": 0.0}
+		profiled_batches_done = 0
 
 		for i in pbar:
 			#print(f"Started epoch {i}")
@@ -223,22 +278,34 @@ class CNN:
 			
 			total_train_cost = 0
 			total_train_loss = 0
+
+			do_profile = profile and profiled_batches_done < profile_batches
+			if do_profile:
+				self.sync(); t_start = time.perf_counter()
+
 			for j in range(num_minibatches):
-				#print(f"minibatch {j}")
+				print(f"minibatch {j}")
 				batch_start = j*batch_size
 				batch_end = (j+1)*batch_size
 
 				X_batch = X_train_shuffled[..., batch_start:batch_end]
+
+				if do_profile:
+					self.sync(); t = time.perf_counter(); timings["data_slice"] += t - t_start; t_start = t
+
 				with torch.no_grad():
-					#X_aug = self.dataloader.augment_data(X=X_batch)
-					X_aug = X_batch
+					X_aug = self.dataloader.augment_data(X=X_batch)
 					
 				P_batch = self.forward(X_aug, self.dropout_prob)
+				if do_profile:
+					self.sync(); t = time.perf_counter(); timings["forward"] += t - t_start; t_start = t
 				Y_batch = Y_train_shuffled[:, batch_start:batch_end]
-				batch_cost, batch_loss = self.__cost_function(P_batch, Y_batch)
+				batch_cost, batch_loss = self.cost_function(P_batch, Y_batch)
 
 				total_train_cost += batch_cost.detach()
 				total_train_loss += batch_loss.detach()
+				if do_profile:
+					self.sync(); t = time.perf_counter(); timings["cost"] += t - t_start; t_start = t
 
 				lr = schedule.get_lr(update_step)
 				params:dict[str, torch.Tensor] = [{"W": layer.W, "b": layer.b} for layer in self.__param_layers]
@@ -248,11 +315,19 @@ class CNN:
 					param_set["b"].grad = None
 
 				batch_cost.backward()
+				if do_profile:
+					self.sync(); t = time.perf_counter(); timings["backward"] += t - t_start; t_start = t
 				with torch.no_grad():
-					auto_grads:dict[str, float] = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.__param_layers]
+					auto_grads:list[dict[str, float]] = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.__param_layers]
 					optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
+					if do_profile:
+						self.sync(); t = time.perf_counter(); timings["optim_step"] += t - t_start; t_start = t
 					lr = schedule.get_lr(update_step)
 					self.__back_pass(lr, optim_grads)
+
+				if do_profile:
+					self.sync(); t = time.perf_counter(); timings["param_update"] += t - t_start; t_start = t
+
 
 				# REMOVED OUR OWN GRADIENT CALCULATION
 				#grads = self.get_gradient(Mx_batch, Y_batch, P_batch)
@@ -260,6 +335,17 @@ class CNN:
 				#self.__back_pass(lr, optim_grads)
 				
 				update_step += 1
+
+				if do_profile:
+					profiled_batches_done += 1
+					if profiled_batches_done == profile_batches:
+						total = sum(timings.values())
+						print(f"\n--- Profile over {profile_batches} minibatches (device={self.device}) ---")
+						for phase, secs in timings.items():
+							per_batch_ms = 1000 * secs / profile_batches
+							pct = 100 * secs / total if total > 0 else 0
+							print(f"  {phase:14s}: {per_batch_ms:7.1f} ms/batch  ({pct:4.1f}%)")
+						print(f"  {'TOTAL':14s}: {1000*total/profile_batches:7.1f} ms/batch\n")
 			
 
 			if not show_plots or (i%epoch_plot_period != 0 and i != max_num_epochs-1): # We only need the lists below for plots
@@ -269,15 +355,26 @@ class CNN:
 				self.history['epochs'].append(self.current_epoch)
 				self.history['train_costs'].append((total_train_cost.detach()/num_minibatches).item())
 				self.history['train_losses'].append((total_train_loss.detach()/num_minibatches).item())
-				
-				P_val = self.forward(X_val, dropout_prob=0)
-				val_cost, val_loss = self.__cost_function(P_val, Y_val)
+
+				torch.mps.empty_cache()
+				val_cost = torch.tensor([0.0]).to(self.device)
+				val_loss = torch.tensor([0.0]).to(self.device)
+				val_minibatches = int(X_val.shape[-1] / batch_size)
+				for k in range(val_minibatches):
+					val_batch_start = k*batch_size
+					val_batch_end = (k+1)*batch_size
+					X_val_batch = X_val[..., val_batch_start:val_batch_end]
+					Y_val_batch = Y_val[..., val_batch_start:val_batch_end]
+					P_val = self.forward(X_val_batch, dropout_prob=0)
+					val_cost_cur, val_loss_cur = self.cost_function(P_val, Y_val_batch)
+					val_cost += val_cost_cur; val_loss += val_loss_cur
+
 				self.history['val_costs'].append(val_cost.detach().item())
 				self.history['val_losses'].append(val_loss.detach().item())
 			
 				if X_val is not None and y_val is not None and y_train is not None:
-					self.history['val_accuracys'].append(self.get_accuracy(X_val, y_val).item())
-					self.history['train_accuracys'].append(self.get_accuracy(X_train, y_train).item())
+					self.history['val_accuracys'].append(self.get_accuracy(X_val, y_val, batch_size).item())
+					self.history['train_accuracys'].append(self.get_accuracy(X_train, y_train, batch_size).item())
 
 			pbar.set_postfix(loss = f"{round(val_loss.item(), 4)}")
 			
@@ -412,13 +509,39 @@ class CNN:
 
 
 
-	def get_accuracy(self, X, y):
-		P = self.forward(X, dropout_prob=0) # (10, batch_size)
-		guesses = torch.argmax(P, axis = 0).float()
+	def get_accuracy(self, X:torch.Tensor, y:torch.Tensor, batch_size:int=200) -> torch.Tensor:
+		"""Get the accuracy of the current network. 
+		
+		Args:
+			X (torch.Tensor): The data. (height, width, nf, n)
+			y (torch.Tensor): The correct labels. (n, )
+			batch_size (int): Batch size for the forward loop to not get memory error. 
+		
+		Returns:
+			accuracy (torch.Tensor): The accuracy of the predicted labels. (1)
+		"""
 
-		corrects = torch.isclose(guesses, y).float()
+		n_datapoints = y.shape[0]
 
-		return torch.sum(corrects) / P.shape[1]
+		num_minibatches = int(n_datapoints / batch_size)
+
+		total_correct = torch.tensor([0.0]).to(self.device)
+
+		for i in range(num_minibatches):
+
+			batch_start = i*batch_size
+			batch_end = (i+1)*batch_size
+			X_batch = X[..., batch_start:batch_end]
+			y_batch = y[batch_start:batch_end]
+
+			P = self.forward(X_batch, dropout_prob=0) # (10, batch_size)
+			guesses = torch.argmax(P, axis = 0).float()
+
+			corrects = torch.isclose(guesses, y_batch).float()
+
+			total_correct += torch.sum(corrects)
+
+		return total_correct / n_datapoints
 
 	
 	def display_accuracy_histogram(self, X, y):

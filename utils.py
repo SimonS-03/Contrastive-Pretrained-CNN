@@ -82,14 +82,17 @@ class AdamW(optimizer):
         self.mt: list[dict[str, float]] = None
         self.vt: list[dict[str, float]] = None
     
-    def update_gradient(self, params: list[dict[str, float]], grads: list[dict[str, float]], iteration: int, lam: float):
+    def update_gradient(self, params: list[dict[str, float]], grads: list[dict[str, float]], iteration: int, lam: float) -> list[dict[str, float]]:
         """Returns the gradients according to the AdamW optimizer. 
         
         Args:
             params (list[dict[str, float]]): List of the parameters of W and b of each layer. 
             grads (list[dict[str, float]]): List of the calculated gradients of W and b of each layer without using this optimizer. 
             iteration (int): The iteration the optimizer is in. 
-            lam (float): Not used in this optimizer. """
+            lam (float): Not used in this optimizer. 
+        
+        Returns:
+            new_grads (list[dict[str, float]]): List of the new gradients of W and b of each layer using this optimizer. """
 
         new_grads = [{"W": 0, "b": 0} for grad in grads] 
         if self.mt is None or self.vt is None:
