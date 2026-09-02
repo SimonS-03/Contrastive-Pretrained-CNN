@@ -383,7 +383,6 @@ def test_train_augment_tiny():
 def test_Mx():
 	"""Test the new "get Mx". """
 
-
 	debug_file = 'Datasets/debug_info.npz'
 	load_data = np.load(debug_file)
 	X = torch.tensor(load_data['X']).float() # (d, n)
@@ -418,7 +417,7 @@ def test_contrastive_small_sample(load_saved: bool = False):
 	filename = f"Saved_Networks/f{f}_nf{nf}_hid{hid_dim}"
 
 	loader = dataloader.Dataloader()
-	data = loader.load_train_data(train_lim=40000, print_progress=True)
+	data = loader.load_train_data(train_lim=10000, print_progress=True)
 	X_train = data["X_train"]
 	X_val = data["X_val"]
 	
@@ -433,15 +432,15 @@ def test_contrastive_small_sample(load_saved: bool = False):
 	mlp_1 = mlp.MLP_Layer(input_dim=n_p*nf, output_dim=hid_dim, activation_function="ReLu")
 	mlp_2 = mlp.MLP_Layer(input_dim=hid_dim, output_dim=200, activation_function="softmax")
 
-	cnn_test = cnn.CNN([conv1, conv2, mlp_1, mlp_2], lam=5e-4, dropout_prob=.3)
+	cnn_test = cnn.CNN([conv1, conv2, mlp_1, mlp_2], lam=2e-4, dropout_prob=.30)
 	cnn_test.dataloader = loader
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=25, min_lr=1e-3, max_lr=1e-1)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=25, min_lr=1e-3, max_lr=2e-1)
 	adamW_optim = utils.AdamW()
 	
 	if load_saved: cnn_test.load_model(filename)
 
 	try: 
-		cnn_test.contrastiveLearning(X_train=X_train, schedule=cyclic_schedule, optim=adamW_optim, batch_size=256, max_num_epochs=40)
+		cnn_test.contrastiveLearning(X_train=X_train, schedule=cyclic_schedule, optim=adamW_optim, batch_size=1000, max_num_epochs=40)
 		cnn_test.show_filters(cnn_test.layers[0].W, freeze=True)
 		cnn_test.save_model(filename)
 	except KeyboardInterrupt:
