@@ -25,7 +25,7 @@ class Conv_Layer:
 		self.__initialize_layer()
 
 		self.W:torch.Tensor = self.nn_layer.weight
-		"""The weights of the network. """
+		"""The weights of the network. (out_channels, in_channels, filter_width, filter_width)"""
 
 		self.b:torch.Tensor = self.nn_layer.bias
 		"""The bias of the network. """
