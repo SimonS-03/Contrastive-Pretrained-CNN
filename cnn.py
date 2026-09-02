@@ -112,9 +112,10 @@ class CNN:
 		cross_entropy = self.__cross_entropy_loss(p, Y_batch)
 		
 		reg = 0
-		for layer in self.__param_layers:
-			cur_weights:torch.Tensor = layer.W
-			reg += self.lam * torch.sum(cur_weights**2)
+		if self.lam != 0: #Reg is zero if lam is zero
+			for layer in self.__param_layers:
+				cur_weights:torch.Tensor = layer.W
+				reg += self.lam * torch.sum(cur_weights**2)
 
 		return cross_entropy + reg, cross_entropy
 
@@ -226,7 +227,7 @@ class CNN:
 	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
 				 y_val:torch.Tensor, schedule: lr_schedule, optim: optimizer, max_num_epochs: int = 40, batch_size: int = 100, 
 					shuffle_set: bool = True, show_plots: bool = True, epoch_plot_period: int = 10, profile:bool=False, 
-					profile_batches:int=10):
+					profile_batches:int=30, profile_warmup_batches:int=5, debug_logs:bool=False):
 		""" Does end-to-end minibatch gradient descent with the given training data. 
 		
 		Args:
@@ -241,7 +242,10 @@ class CNN:
 			max_num_epochs (int): Maximum number of epochs for the training. 
 			batch_size (int): The batch size for batch training. 
 			shuffle_set (bool): If the data set should be randomly shuffled at before each epoch. 
-			show_plots (bool): If plots of the training and validation loss, cost and accuracy should be displayed at the end. """
+			show_plots (bool): If plots of the training and validation loss, cost and accuracy should be displayed at the end. 
+			profile_batches (int): How many batches to time. 
+			profile_warmup_batches (int): How many batches to run before starting the timing. To avoid timing one-time things. 
+			debug_logs (bool): If debugs should be calculated and printed. """
 
 		#Set all the data to the same device
 		X_train = X_train.to(self.device)
@@ -263,8 +267,9 @@ class CNN:
 		pbar = tqdm.tqdm(range(max_num_epochs))
 		update_step = 1
 
-		timings = {"data_slice": 0.0, "forward": 0.0, "cost": 0.0, "backward": 0.0, "optim_step": 0.0, "param_update": 0.0}
+		timings = {"data_slice": 0.0, "augment": 0.0, "forward": 0.0, "cost": 0.0, "backward": 0.0, "optim_step": 0.0, "param_update": 0.0}
 		profiled_batches_done = 0
+		batches_seen = 0
 
 		for i in pbar:
 			#print(f"Started epoch {i}")
@@ -279,12 +284,15 @@ class CNN:
 			total_train_cost = 0
 			total_train_loss = 0
 
-			do_profile = profile and profiled_batches_done < profile_batches
-			if do_profile:
-				self.sync(); t_start = time.perf_counter()
-
 			for j in range(num_minibatches):
-				print(f"minibatch {j}")
+				if debug_logs:
+					print(f"minibatch {j}")
+
+				do_profile = profile and profiled_batches_done < profile_batches \
+					and profile_warmup_batches <= batches_seen
+				if do_profile:
+					self.sync(); t_start = time.perf_counter()
+
 				batch_start = j*batch_size
 				batch_end = (j+1)*batch_size
 
@@ -294,7 +302,10 @@ class CNN:
 					self.sync(); t = time.perf_counter(); timings["data_slice"] += t - t_start; t_start = t
 
 				with torch.no_grad():
-					X_aug = self.dataloader.augment_data(X=X_batch)
+					X_aug = self.dataloader.augment_data(X=X_batch, individual_aug=False)
+
+				if do_profile:
+					self.sync(); t = time.perf_counter(); timings["augment"] += t - t_start; t_start = t
 					
 				P_batch = self.forward(X_aug, self.dropout_prob)
 				if do_profile:
@@ -322,7 +333,7 @@ class CNN:
 					optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 					if do_profile:
 						self.sync(); t = time.perf_counter(); timings["optim_step"] += t - t_start; t_start = t
-					lr = schedule.get_lr(update_step)
+			
 					self.__back_pass(lr, optim_grads)
 
 				if do_profile:
@@ -334,6 +345,7 @@ class CNN:
 				#optim_grads = optim.update_gradient(params=params, grads=grads, iteration=update_step, lam=self.lam) 
 				#self.__back_pass(lr, optim_grads)
 				
+				batches_seen += 1
 				update_step += 1
 
 				if do_profile:
@@ -356,7 +368,6 @@ class CNN:
 				self.history['train_costs'].append((total_train_cost.detach()/num_minibatches).item())
 				self.history['train_losses'].append((total_train_loss.detach()/num_minibatches).item())
 
-				torch.mps.empty_cache()
 				val_cost = torch.tensor([0.0]).to(self.device)
 				val_loss = torch.tensor([0.0]).to(self.device)
 				val_minibatches = int(X_val.shape[-1] / batch_size)

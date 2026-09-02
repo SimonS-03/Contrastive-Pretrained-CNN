@@ -163,7 +163,7 @@ class Dataloader:
 
 
     def augment_data(self, X:torch.Tensor, flip_prob:float=0.5, rot_prob:float=0.1, noise_prob:float=0.2, \
-                     noise_std:float=0.05) -> torch.Tensor:
+                     noise_std:float=0.05, individual_aug:bool=True) -> torch.Tensor:
         """Augment the data by rotating, flipping and adding noise. Clones the data. 
         
         Args:
@@ -172,6 +172,8 @@ class Dataloader:
             rot_prob (float):  Probability of rotating each image -90, 90 or 180 degrees. [0, 1]
             noise_prob (float): Probability of adding noise to each image. [0, 1]
             noise_std (float): Standard deviation of the noise. 
+            individual_aug (bool): If we should augment all the images differently, \
+            slower but needed for contrastive divergence. 
             
         Returns:
             X_aug (torch.Tensor): The augmented data. (height, width, rgb, n)"""
@@ -184,7 +186,10 @@ class Dataloader:
         X_aug_perm = X_aug.permute(3, 2, 0, 1)
         #augmented_images = [self.augmentations(X_aug_perm[i]) for i in range(X_aug_perm.shape[0])]
         #X_aug_perm = torch.stack(augmented_images)
-        X_aug_perm = torch.stack([self.augmentations(X_aug_perm[i]) for i in range(X_aug_perm.shape[0])])
+        if individual_aug:
+            X_aug_perm = torch.stack([self.augmentations(X_aug_perm[i]) for i in range(X_aug_perm.shape[0])])
+        else:
+            X_aug_perm = self.augmentations(X_aug_perm)
         #print(X_aug_perm.shape)
         X_aug = X_aug_perm.permute(2, 3, 1, 0).contiguous()
 

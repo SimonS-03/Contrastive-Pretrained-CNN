@@ -327,17 +327,20 @@ def test_train_augment_tiny():
 	"""Augment tiny images. """
 	torch.manual_seed(42)
 
+	device = "mps"
+
 	dataload = dataloader.Dataloader()
 	data = dataload.load_train_data(print_progress=True, train_lim=10000, val_lim=1000)
-	X_train = data['X_train']
+	X_train = data['X_train'].to(device)
 	X_train = dataload.normalize(X_train)
-	X_val = dataload.normalize(data['X_val'], use_train_data=True)
+	X_val = dataload.normalize(data['X_val'].to(device), use_train_data=True)
 
 	f = 3
 	nf = 128
 	stride = 1
 	padding = 1
 	rgb = 3
+	lam = 0.01
 	n_classes = data['Y_train'].shape[0]
 	width = X_train.shape[0]
 
@@ -365,7 +368,8 @@ def test_train_augment_tiny():
 
 	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="softmax")
 
-	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], device="mps")
+	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
+					lam=lam, device=device)
 	
 	cnn_test.dataloader = dataload
 	
@@ -373,7 +377,7 @@ def test_train_augment_tiny():
 	adamW_optim = utils.AdamW()
 	cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_val, \
 					  Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
-						batch_size=200, max_num_epochs=100, show_plots=True, profile=True)
+						batch_size=200, max_num_epochs=100, show_plots=True, profile=True, debug_logs=False)
 
 
 def test_Mx():
@@ -576,14 +580,19 @@ def time_network():
 		cost.backward()
 		cnn_test.sync()
 
-	with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU]) as prof:
-		for _ in range(30):
-			P_batch = cnn_test.forward(X_batch, cnn_test.dropout_prob)
-			cost, _ = cnn_test.cost_function(P_batch, Y_batch)
-			cost.backward()
-			cnn_test.sync()
+	prof = torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU])
 
-	print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=15))
+	for _ in range(30):
+		P_batch = cnn_test.forward(X_batch, cnn_test.dropout_prob)
+		cost, _ = cnn_test.cost_function(P_batch, Y_batch)
+
+		prof.start()
+		cost.backward()
+		cnn_test.sync()
+		prof.stop()
+		
+
+	print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=15))
 
 
 
