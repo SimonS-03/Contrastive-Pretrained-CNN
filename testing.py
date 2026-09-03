@@ -390,9 +390,12 @@ def test_train_contrastive_tiny(checkpoint: str = None):
 	device = "mps"
 
 	dataload = dataloader.Dataloader()
-	data = dataload.load_train_data(print_progress=True, train_lim=10000, val_lim=5)
-	X_train = data['X_train'].to(device)
-	X_train = dataload.normalize(X_train)
+	data = dataload.load_train_data(print_progress=True, train_lim=200, val_lim=100)
+	X_train = dataload.normalize(data['X_train'])
+	del data['X_train']
+	X_val = dataload.normalize(data['X_val'], use_train_data=True)
+	del data['X_val']
+	dataload.set_normal_device(device=device)
 
 	f = 3
 	nf = 128
@@ -444,81 +447,13 @@ def test_train_contrastive_tiny(checkpoint: str = None):
 			print(f"Could not find checkpoint with filename {checkpoint}. Starting from scratch.")
 
 	try: 
-		cnn_test.contrastiveLearning(X_train=X_train, \
+		cnn_test.contrastiveLearning(X_train=X_train, X_val=X_val, \
 					batch_size=100, max_num_epochs=20, show_plots=True, debug_logs=False)
 		cnn_test.show_filters(cnn_test.layers[0].W, freeze=True)
 		if checkpoint: cnn_test.save_checkpoint(checkpoint)
 	except KeyboardInterrupt:
 		print("Training interupted...")
 		if checkpoint: cnn_test.save_checkpoint(checkpoint)
-
-def test_Mx():
-	"""Test the new "get Mx". """
-
-	debug_file = 'Datasets/debug_info.npz'
-	load_data = np.load(debug_file)
-	X = torch.tensor(load_data['X']).float() # (d, n)
-	Fs = torch.tensor(load_data['Fs']).float() # (f, f, rgb, nf)
-
-	f = Fs.shape[0]
-
-	X = X.T
-	X_ims = X.reshape(X.shape[0], 3, 32, 32).permute(2, 3, 1, 0)
-	ni = X_ims.shape[3]
-	Mx = torch.zeros(size=((32//f)**2, f*f*3, ni))
-	for img_index in range(ni):
-		img = X_ims[:, :, :, img_index]
-		l = 0
-		for i in range(32//f):
-			for j in range(32//f):
-				patch = img[i*f:i*f+f, j*f:j*f+f, :]
-				Mx[l, :, img_index] = patch.reshape(1, f*f*3)
-				l += 1
-
-	loader = dataloader.Dataloader()
-
-	Mx_new = loader.create_Mx(X_ims, f)
-
-	print("Diff:", torch.linalg.norm(Mx - Mx_new).item())
-
-
-def test_contrastive_small_sample(load_saved: bool = False):
-	f = 4
-	nf = 64
-	hid_dim = 300
-	filename = f"Saved_Networks/f{f}_nf{nf}_hid{hid_dim}"
-
-	loader = dataloader.Dataloader()
-	data = loader.load_train_data(train_lim=10000, print_progress=True)
-	X_train = data["X_train"]
-	X_val = data["X_val"]
-	
-	X_train = loader.normalize(X_train)
-	X_val = loader.normalize(X_val, use_train_data=True)
-	
-	conv1 = convolution.Conv_Layer(filter_width=4, nf=nf, channels=3, activation_function="ReLu")
-	conv2 = convolution.Conv_Layer(filter_width=4, nf=nf, channels=nf, activation_function="ReLu")
-	#loader.show_filters(conv1.W)
-	n_p = (X_train.shape[0]//(4*4))**2 # NEEDS TO BE UPDATED WHEN CONV LAYERS CHANGE
-	
-	mlp_1 = mlp.MLP_Layer(input_dim=n_p*nf, output_dim=hid_dim, activation_function="ReLu")
-	mlp_2 = mlp.MLP_Layer(input_dim=hid_dim, output_dim=200, activation_function="softmax")
-
-	cnn_test = cnn.CNN([conv1, conv2, mlp_1, mlp_2], lam=2e-4, dropout_prob=.30)
-	cnn_test.dataloader = loader
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=25, min_lr=2, max_lr=2)
-	adamW_optim = utils.AdamW()
-	
-	if load_saved: cnn_test.load_model(filename)
-
-	try: 
-		cnn_test.contrastiveLearning(X_train=X_train, schedule=cyclic_schedule, optim=adamW_optim, batch_size=1000, max_num_epochs=40)
-		cnn_test.show_filters(cnn_test.layers[0].W, freeze=True)
-		cnn_test.save_model(filename)
-	except KeyboardInterrupt:
-		print("Training interupted, saving model...")
-		cnn_test.save_model(filename)
-
 
 def real_minibatch_run():
 	"""Does a solid minibatch run"""
@@ -668,7 +603,7 @@ def time_network():
 
 
 if __name__ == "__main__":
-	test_train_contrastive_tiny(checkpoint="optimizer_save_test")
+	test_train_contrastive_tiny(checkpoint=None)
 	#time_network()
 	#test_train_augment_tiny()
 	#test_overfit_small_sample()

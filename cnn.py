@@ -415,24 +415,25 @@ class CNN:
 			plt.ioff() # Turn off interactive mode
 			plt.show() # Keep the final plot window open when training finishes
 
-	def contrastiveLearning(self, X_train: torch.Tensor,
-					 max_num_epochs: int = 40, batch_size: int = 100, 
-					shuffle_set: bool = True, show_plots: bool = True, debug_logs: bool = False):
+	def contrastiveLearning(self, X_train: torch.Tensor, X_val: torch.Tensor,
+					 max_num_epochs: int = 40, batch_size: int = 100, epoch_save_step: int = 5,
+					shuffle_set: bool = True, show_plots: bool = True, debug_logs: bool = False, save_path: str = None):
 		""" Does contrastive self-supervised learning """
-
-		X_train = X_train.to(self.device)
 
 		n_datapoints = X_train.shape[-1]
 		num_minibatches = int(n_datapoints / batch_size)
 		optim = self.adamW_optim
 		schedule = self.lr_schedule
-		training_losses = []
-		learning_rates = []
+
+		training_losses = self.history['train_losses']
+		validation_losses = self.history['val_losses']
+		learning_rates = self.history['learning_rates']
 		if show_plots:
 			plt.ion()
 			loss_fig, loss_ax = plt.subplots(figsize=(8, 4))
 			raw_loss_line, = loss_ax.plot([], [], linestyle='--', color='r', label='raw loss')
 			smoothed_loss_line, = loss_ax.plot([], [], linestyle='-', color='green', label='avg last 50')
+			validation_loss_line, = loss_ax.plot([], [], linestyle='-', marker='o', color='purple', label='validation loss')
 			loss_ax.set_xlabel('Update step')
 			loss_ax.set_ylabel('Training loss')
 			loss_ax.set_title('Contrastive Training loss')
@@ -464,30 +465,21 @@ class CNN:
 
 			for i in pbar:
 				if debug_logs: print(f"Started epoch {i}")
-
 				permutation = torch.randperm(X_train.shape[-1])
 				if shuffle_set:
 					X_train_shuffled = X_train_shuffled[..., permutation]
 		
-				epoch_loss = None
+				batch_loss = None
 				for j in range(num_minibatches):
 					#print(f"minibatch {j}")
 					#print(f"Starting update step {update_step}")
 					batch_start = j*batch_size
 					batch_end = (j+1)*batch_size
 					
-					X_batch = X_train_shuffled[..., batch_start:batch_end]
+					X_batch = X_train_shuffled[..., batch_start:batch_end].to(self.device)
 					with torch.no_grad():
-						aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=0, noise_prob=.5).to(self.device)
-						aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=0, noise_prob=.5).to(self.device)
-						#aug_batch1 = X_batch.clone().to(self.device) # For debugging, no augmentation
-						#aug_batch2 = X_batch.clone().to(self.device) # For debugging, no augmentation
-											
-					
-					# LEGACY CODE
-					#aug_batch1 = self.dataloader.create_Mx(aug_batch1, filter_width=self.layers[0].filter_width)
-					#aug_batch2 = self.dataloader.create_Mx(aug_batch2, filter_width=self.layers[0].filter_width)
-					#print(f"Mag of augmented batch 1 Mx: {aug_batch1.norm()}")
+						aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=0, noise_prob=.5)
+						aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=0, noise_prob=.5)
 	
 					params = [{"W": layer.W, "b": layer.b} for layer in self.__param_layers]
 					if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]['W'].norm()}")
@@ -503,16 +495,16 @@ class CNN:
 					last_filter_norm = self.layers[0].W.norm().item()
 					with torch.no_grad():
 						auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.__param_layers]
-						#print(f"Step {update_step} filter grad-mag: {torch.round(auto_grads[0]["W"].norm(), decimals=4)}, mag: {self.layers[0].W.norm().item():.4f}")
-						#print(f"Grad of output layer at step {update_step}: {torch.round(auto_grads[-1]["W"].norm(), decimals=2)}")
+
 						lr = schedule.get_lr()
 						learning_rates.append(lr)
 						optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 						self.__back_pass(lr, optim_grads)
 						self.show_filters(self.layers[0].W, freeze=False, step=update_step)
 						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]["W"].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\n====================\n")
-						epoch_loss = loss.detach().cpu().item()
-						training_losses.append(epoch_loss)
+						batch_loss = loss.detach().cpu().item()
+						training_losses.append(batch_loss)
+
 						if show_plots:
 							update_steps = np.arange(1, len(training_losses) + 1)
 							raw_loss_line.set_data(update_steps, training_losses)
@@ -531,7 +523,30 @@ class CNN:
 							lr_fig.canvas.draw()
 							lr_fig.canvas.flush_events()
 					update_step += 1
-				
+
+				with torch.no_grad(): # Checking validation data
+					self.current_epoch += 1
+					X_val = X_val.to(self.device) # We only do one batch of val
+					val_aug_1 = self.dataloader.augment_data(X_val, flip_prob=.5, rot_prob=0, noise_prob=.5)
+					val_aug_2 = self.dataloader.augment_data(X_val, flip_prob=.5, rot_prob=0, noise_prob=.5)
+
+					output_batch1 = self.forward(val_aug_1, dropout_prob=.0) 
+					output_batch2 = self.forward(val_aug_2, dropout_prob=.0) 
+					val_loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=.1) # Choise of temp is based on report
+					val_loss_value = val_loss.detach().cpu().item()
+					self.history['val_losses'].append(val_loss_value)
+					
+					if show_plots:
+						validation_steps = np.arange(1, len(validation_losses) + 1) * num_minibatches
+						validation_loss_line.set_data(validation_steps, validation_losses)
+						loss_ax.relim()
+						loss_ax.autoscale_view()
+						loss_fig.canvas.draw()
+						loss_fig.canvas.flush_events()
+
+				if save_path is not None and (i % epoch_save_step == 0 or i == max_num_epochs - 1):
+					self.save_checkpoint(f"{save_path}_epoch_{self.current_epoch}")
+
 				if training_losses:
 					pbar.set_postfix(loss = f"{training_losses[-1]:.4f}", filter_mag = f"{self.layers[0].W.norm().item():.4f}")
 		finally:
@@ -631,9 +646,8 @@ class CNN:
 			model_state.append(layer_state)
 
 		# Saving optim and lr_schedule states if they exist
-		
-		optim_state = self.adamW_optim.get_state()
-		lr_schedule_state = self.lr_schedule.get_state()
+		optim_state = self.adamW_optim.get_state() if self.adamW_optim is not None else None
+		lr_schedule_state = self.lr_schedule.get_state() if self.lr_schedule is not None and hasattr(self.lr_schedule, "get_state") else None
 
 		
 		checkpoint = {
