@@ -36,8 +36,8 @@ class CNN:
 			'train_accuracys': [], 'val_accuracys': [], 'learning_rates': []
 		}
 		"""The history of the training run. \\
-			'epochs', 'train_costs', 'train_losses', 'val_costs', 'val_losses',
-			'train_accuracys', 'val_accuracys'"""
+			'epochs', 'train_steps', 'train_costs', 'train_losses', 'val_steps', 'val_costs', 
+			'val_losses', 'train_accuracys', 'val_accuracys', 'learning_rates'"""
 	
 		self.current_epoch = 0
 		"""Current epoch. """
@@ -97,6 +97,9 @@ class CNN:
 			
 				#Flatten input
 				x = x.reshape(x.shape[0]*x.shape[1]*x.shape[2], x.shape[3])
+
+			if layer == self.layers[-1]:
+				dropout_prob = 0 #No dropout on the last layer
 
 			x = layer.forward(x, dropout_prob)
 			#if torch.any(x.isnan()):
@@ -262,7 +265,20 @@ class CNN:
 		
 		if show_plots:
 			plt.ion() # Turn on interactive mode
-			fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+			# Single window, three subplots: cost/loss, accuracy, learning rate
+			fig, (ax1, ax2, lr_ax) = plt.subplots(1, 3, figsize=(18, 5))
+			fig.canvas.manager.set_window_title("Training metrics")
+
+			lr_line, = lr_ax.plot([], [], linestyle='-', color='blue')
+			lr_ax.set_xlabel("Epoch")
+			lr_ax.set_title("Learning Rate")
+			lr_ax.legend()
+
+			fig.show()
+
+			# Filters get their own separate window
+			self.show_filters(self.layers[0].W, freeze=False)
 
 		pbar = tqdm.tqdm(range(max_num_epochs))
 		update_step = 1
@@ -324,7 +340,8 @@ class CNN:
 					ax1.set_xlabel("Epoch")
 					ax1.legend()
 					ax1.set_title(f"Train/val cost + loss, lam={self.lam}")
-					plt.pause(0.001)
+					fig.canvas.draw()
+					fig.canvas.flush_events()
 
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["cost"] += t - t_start; t_start = t
@@ -346,6 +363,20 @@ class CNN:
 						self.sync(); t = time.perf_counter(); timings["optim_step"] += t - t_start; t_start = t
 			
 					self.__back_pass(lr, optim_grads)
+
+				if show_plots:
+						# Learning rate subplot
+						self.history['learning_rates'].append(lr)
+						lr_steps = self.history['train_steps']
+						lr_line.set_data(lr_steps, self.history['learning_rates'])
+						lr_ax.relim()
+						lr_ax.autoscale_view()
+						fig.canvas.draw()
+						fig.canvas.flush_events()
+
+						# Filter display window (separate from fig)
+						self.show_filters(self.layers[0].W, freeze=False, step=update_step)
+
 
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["param_update"] += t - t_start; t_start = t
@@ -407,7 +438,8 @@ class CNN:
 			ax2.set_xlabel("Epoch")
 			ax2.legend()
 
-			plt.pause(0.001)
+			fig.canvas.draw()
+			fig.canvas.flush_events()
 
 		if show_plots:
 			plt.ioff() # Turn off interactive mode
@@ -499,7 +531,7 @@ class CNN:
 						optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 						self.__back_pass(lr, optim_grads)
 						self.show_filters(self.layers[0].W, freeze=False, step=update_step)
-						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]["W"].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\n====================\n")
+						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]['W'].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\n====================\n")
 						batch_loss = loss.detach().cpu().item()
 						training_losses.append(batch_loss)
 

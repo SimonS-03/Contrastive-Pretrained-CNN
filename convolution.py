@@ -61,7 +61,7 @@ class Conv_Layer:
 		else: # TODO: implement softmax?
 			raise ValueError("Activation function in layer not registered/implemented, returning None.")
 
-		self.h = torch.nn.functional.dropout(act, dropout_prob, training=True)
+		self.h = act #torch.nn.functional.dropout2d(act, dropout_prob, training=True)
 
 		return self.h
 			

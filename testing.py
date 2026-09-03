@@ -371,7 +371,7 @@ def test_train_augment_tiny():
 	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="softmax")
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
-					lam=lam, device=device, dropout_prob=0.3)
+					lam=lam, device=device, dropout_prob=0.5)
 
 	print("After initializing the network")
 	
@@ -603,7 +603,7 @@ def time_network():
 
 
 if __name__ == "__main__":
-	test_train_contrastive_tiny(checkpoint=None)
+	#test_train_contrastive_tiny(checkpoint=None)
 	#time_network()
 	test_train_augment_tiny()
 	#test_overfit_small_sample()
