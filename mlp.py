@@ -32,7 +32,7 @@ class MLP_Layer:
 			Args:
 				input_dim (int): Dimension of input. 
 				output_dim (int): Dimension of output. """
-		if self.activation_function == "softmax":
+		if self.activation_function in ["softmax", "linear"]:
 			self.W = 0.01 * torch.randn(size=(output_dim, input_dim), device=self.device)
 		else:
 			self.W = torch.math.sqrt(2/(input_dim)) * torch.randn(size = (output_dim, input_dim), device=self.device)

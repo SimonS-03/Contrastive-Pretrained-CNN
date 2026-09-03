@@ -25,8 +25,8 @@ class Dataloader:
             return
 
         self.augmentations = trans.Compose([
-            trans.RandomResizedCrop(size=(height, width), scale=(.35, 1), antialias=True),
-            trans.ColorJitter(brightness=.5, contrast=.5, saturation=.5, hue=.1),
+            trans.RandomResizedCrop(size=(height, width), scale=(.65, 1), antialias=True),
+            trans.ColorJitter(brightness=.3, contrast=.3, saturation=.3, hue=.05),
             trans.RandomGrayscale(p=.1)
         ])
 

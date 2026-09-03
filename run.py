@@ -6,7 +6,7 @@ import mlp, cnn, convolution, dataloader, pooling
 import utils
 
 class Settings:
-	def __init__(self, training_samples = 1000, validation_samples = 1000, batch_size=100, show_plots: bool = True, dropout_prob: float = 0.3):
+	def __init__(self, training_samples = 1000, validation_samples = 1000, batch_size=100, show_plots: bool = True, dropout_prob: float = 0):
 		self.training_samples = training_samples
 		self.validation_samples = validation_samples
 		self.batch_size = batch_size
@@ -31,7 +31,7 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 	stride = 1
 	padding = 1
 	rgb = 3
-	lam = 0
+	lam = 2.5e-4
 	n_classes = data['Y_train'].shape[0]
 	width = X_train.shape[0]
 
@@ -55,9 +55,9 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 
 	mlp_2 = mlp.MLP_Layer(input_dim=400, output_dim=400, activation_function="ReLu")
 
-	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="softmax")
+	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="linear")
 
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-2, max_lr=1e-1)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-3, max_lr=5e-2)
 	adamW_optim = utils.AdamW()
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
@@ -99,7 +99,7 @@ def run_supervised(settings: Settings = Settings(), checkpoint: str = None, supe
 	stride = 1
 	padding = 1
 	rgb = 3
-	lam = 0
+	lam = 2.5e-4
 	n_classes = data['Y_train'].shape[0]
 	width = X_train.shape[0]
 
@@ -123,25 +123,32 @@ def run_supervised(settings: Settings = Settings(), checkpoint: str = None, supe
 
 	mlp_2 = mlp.MLP_Layer(input_dim=400, output_dim=400, activation_function="ReLu")
 
-	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="softmax")
+	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="linear")
 
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-4, max_lr=1e-3)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=100, min_lr=1e-4, max_lr=1e-3)
 	adamW_optim = utils.AdamW()
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
 					lam=lam, device=device, lr_schedule=cyclic_schedule, adamW_optim=adamW_optim)
+
+
 	
+
 	cnn_test.dataloader = dataload
 	
 
 	if checkpoint: 
 		try:
-			cnn_test.load_checkpoint(f"{checkpoint}_contrastive", load_training_state=False)
+			cnn_test.load_checkpoint(f"{checkpoint}_contrastive", load_training_state=False, load_last_layer=False)
 		except:
 			print(f"Could not find checkpoint with filename {checkpoint}. Starting from scratch.")
 
 
 	try: 
+		for layer in cnn_test.layers[:-1]:
+				if hasattr(layer, 'W') and layer.W is not None:
+					layer.W.requires_grad = False
+					layer.b.requires_grad = False
 		cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_val, \
 					Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
 					batch_size=settings.batch_size, max_num_epochs=supervised_epochs, show_plots=True, profile=True, debug_logs=True, save_path=checkpoint, epoch_save_step=epoch_save_step)
@@ -152,14 +159,14 @@ def run_supervised(settings: Settings = Settings(), checkpoint: str = None, supe
 
 
 
-def run_full(settings: Settings = Settings(), checkpoint: str = None, contrastive_epochs: int = 20, supervised_epochs: int = 20):
+def run_full(settings: Settings = Settings(), checkpoint: str = None, contrastive_epochs: int = 50, supervised_epochs: int = 20):
 	"""Runs both contrastive learning and supervised training on the full dataset."""
 	run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=contrastive_epochs, epoch_save_step=5)
 	run_supervised(settings, checkpoint=checkpoint, supervised_epochs=supervised_epochs, epoch_save_step=5)
 
 if __name__ == "__main__":
 	checkpoint= None
-	settings = Settings(training_samples=500, validation_samples=100, batch_size=100, show_plots=True, dropout_prob=0)
-	#run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=20, epoch_save_step=1)
-	run_supervised(settings, checkpoint=None, supervised_epochs=20, epoch_save_step=5)
-	#run_full(settings, checkpoint="full_test")
+	settings = Settings(training_samples=1000, validation_samples=200, batch_size=200, show_plots=True, dropout_prob=0)
+	run_contrastive(settings, checkpoint=None, contrastive_epochs=20, epoch_save_step=10)
+	#run_supervised(settings, checkpoint=None, supervised_epochs=20, epoch_save_step=5)
+	#run_full(settings, checkpoint="oldbomba2222")

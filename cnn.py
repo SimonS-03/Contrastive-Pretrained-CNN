@@ -98,10 +98,10 @@ class CNN:
 				#Flatten input
 				x = x.reshape(x.shape[0]*x.shape[1]*x.shape[2], x.shape[3])
 
-			if i == len(self.layers)-1:
-				x = layer.forward(x, dropout_prob=0)
-			else:
-				x = layer.forward(x, dropout_prob)
+			if layer == self.layers[-1]:
+				dropout_prob = 0 #No dropout on the last layer
+
+			x = layer.forward(x, dropout_prob)
 			#if torch.any(x.isnan()):
 			#	raise ValueError("One item is NaN. ")
 			prev_layer = layer
@@ -109,12 +109,13 @@ class CNN:
 		return x
 
 
-	def cost_function(self, p: torch.Tensor, Y_batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+	def cost_function(self, logits: torch.Tensor, Y_batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
 		"""Calculated the mean cross-entropy loss of a set of 
 		predicted class probabilites"""
 		# both have dimensions (10, batch_size)
 		# We take the mean of the loss over the batch
-		cross_entropy = self.__cross_entropy_loss(p, Y_batch)
+		targets = torch.argmax(Y_batch, dim=0)
+		cross_entropy = torch.nn.functional.cross_entropy(logits.T, targets)
 		
 		reg = 0
 		if self.lam != 0: #Reg is zero if lam is zero
@@ -268,7 +269,20 @@ class CNN:
 		
 		if show_plots:
 			plt.ion() # Turn on interactive mode
-			fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+			# Single window, three subplots: cost/loss, accuracy, learning rate
+			fig, (ax1, ax2, lr_ax) = plt.subplots(1, 3, figsize=(18, 5))
+			fig.canvas.manager.set_window_title("Training metrics")
+
+			lr_line, = lr_ax.plot([], [], linestyle='-', color='blue')
+			lr_ax.set_xlabel("Epoch")
+			lr_ax.set_title("Learning Rate")
+			lr_ax.legend()
+
+			fig.show()
+
+			# Filters get their own separate window
+			self.show_filters(self.layers[0].W, freeze=False)
 
 		pbar = tqdm.tqdm(range(max_num_epochs))
 		update_step = 1
@@ -330,7 +344,8 @@ class CNN:
 					ax1.set_xlabel("Epoch")
 					ax1.legend()
 					ax1.set_title(f"Train/val cost + loss, lam={self.lam}")
-					plt.pause(0.001)
+					fig.canvas.draw()
+					fig.canvas.flush_events()
 
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["cost"] += t - t_start; t_start = t
@@ -347,11 +362,38 @@ class CNN:
 					self.sync(); t = time.perf_counter(); timings["backward"] += t - t_start; t_start = t
 				with torch.no_grad():
 					auto_grads:list[dict[str, float]] = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.__param_layers]
+					if debug_logs and auto_grads is not None and len(auto_grads) > 0 and auto_grads[0]["W"] is not None:
+						first_layer = self.__param_layers[0]
+						last_layer = self.__param_layers[-1]
+						first_grads = auto_grads[0]
+						last_grads = auto_grads[-1]
+						print(
+							f"\n======= Gradient debug @ update {update_step} =======\n"
+							f"First layer ({first_layer.__class__.__name__}) | W grad norm: {first_grads['W'].norm().item():.6f}, "
+							f"b grad norm: {first_grads['b'].norm().item():.6f}\n"
+							f"Last layer ({last_layer.__class__.__name__}) | W grad norm: {last_grads['W'].norm().item():.6f}, "
+							f"b grad norm: {last_grads['b'].norm().item():.6f}\n"
+							f"===========================================\n"
+						)
 					optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 					if do_profile:
 						self.sync(); t = time.perf_counter(); timings["optim_step"] += t - t_start; t_start = t
 			
 					self.__back_pass(lr, optim_grads)
+
+				if show_plots:
+						# Learning rate subplot
+						self.history['learning_rates'].append(lr)
+						lr_steps = self.history['train_steps']
+						lr_line.set_data(lr_steps, self.history['learning_rates'])
+						lr_ax.relim()
+						lr_ax.autoscale_view()
+						fig.canvas.draw()
+						fig.canvas.flush_events()
+
+						# Filter display window (separate from fig)
+						self.show_filters(self.layers[0].W, freeze=False, step=update_step)
+
 
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["param_update"] += t - t_start; t_start = t
@@ -416,7 +458,8 @@ class CNN:
 			ax2.set_xlabel("Epoch")
 			ax2.legend()
 
-			plt.pause(0.001)
+			fig.canvas.draw()
+			fig.canvas.flush_events()
 
 		if show_plots:
 			plt.ioff() # Turn off interactive mode
@@ -439,15 +482,15 @@ class CNN:
 			plt.ion()
 			loss_fig, loss_ax = plt.subplots(figsize=(8, 4))
 			raw_loss_line, = loss_ax.plot([], [], linestyle='--', color='r', label='raw loss')
-			smoothed_loss_line, = loss_ax.plot([], [], linestyle='-', color='green', label='avg last 50')
+			#smoothed_loss_line, = loss_ax.plot([], [], linestyle='-', color='green', label='avg last 50')
 			validation_loss_line, = loss_ax.plot([], [], linestyle='-', marker='o', color='purple', label='validation loss')
-			loss_ax.set_xlabel('Update step')
+			loss_ax.set_xlabel('Epoch')
 			loss_ax.set_ylabel('Training loss')
 			loss_ax.set_title('Contrastive Training loss')
 			loss_ax.legend()
 			lr_fig, lr_ax = plt.subplots(figsize=(8, 4))
 			lr_line, = lr_ax.plot([], [], linestyle='-', color='blue', label='learning rate')
-			lr_ax.set_xlabel('Update step')
+			lr_ax.set_xlabel('Epoch')
 			lr_ax.set_ylabel('Learning rate')
 			lr_ax.set_title('Contrastive Learning Rate')
 			lr_ax.legend()
@@ -459,14 +502,11 @@ class CNN:
 		update_step = 1
 		
 		
-		# Adding pretraining head
-		last_layer_output_shape = self.layers[-1].W.shape[1]
-		head_output_dim = 200
+
 		original_head = self.layers[-1]
-		pretraining_head = MLP_Layer(input_dim=last_layer_output_shape, output_dim=head_output_dim, activation_function="ReLu")
-		
+		#pretraining_head = MLP_Layer(input_dim=last_layer_output_shape, output_dim=head_output_dim, activation_function="ReLu")
+		#self.layers[-1] = pretraining_head
 		try:
-			self.layers[-1] = pretraining_head
 			self.__to(self.device)
 			self.show_filters(self.layers[0].W, freeze=False)
 
@@ -485,8 +525,8 @@ class CNN:
 					
 					X_batch = X_train_shuffled[..., batch_start:batch_end].to(self.device)
 					with torch.no_grad():
-						aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=0, noise_prob=.5)
-						aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.5, rot_prob=0, noise_prob=.5)
+						aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.4, rot_prob=0.1, noise_prob=.4)
+						aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.4, rot_prob=0.1, noise_prob=.4)
 	
 					params = [{"W": layer.W, "b": layer.b} for layer in self.__param_layers]
 					if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]['W'].norm()}")
@@ -508,18 +548,18 @@ class CNN:
 						optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 						self.__back_pass(lr, optim_grads)
 						self.show_filters(self.layers[0].W, freeze=False, step=update_step)
-						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]["W"].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\n====================\n")
-						batch_loss = loss.detach().cpu().item()
+						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]['W'].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\n====================\n")
+						batch_loss = loss.detach().cpu().item()/batch_size
 						training_losses.append(batch_loss)
 
 						if show_plots:
-							update_steps = np.arange(1, len(training_losses) + 1)
-							raw_loss_line.set_data(update_steps, training_losses)
+							epochs = np.arange(1, len(training_losses) + 1)/num_minibatches
+							raw_loss_line.set_data(epochs, training_losses)
 							window_size = min(50, len(training_losses))
-							smoothed_losses = np.convolve(training_losses, np.ones(window_size) / window_size, mode='valid')
-							smoothed_steps = np.arange(window_size, len(training_losses) + 1)
-							smoothed_loss_line.set_data(smoothed_steps, smoothed_losses)
-							lr_steps = np.arange(1, len(learning_rates) + 1)
+							#smoothed_losses = np.convolve(training_losses, np.ones(window_size) / window_size, mode='valid')
+							#smoothed_steps = np.arange(window_size, len(training_losses) + 1)/num_minibatches
+							#smoothed_loss_line.set_data(smoothed_steps, smoothed_losses)
+							lr_steps = np.arange(1, len(learning_rates) + 1)/num_minibatches
 							lr_line.set_data(lr_steps, learning_rates)
 							loss_ax.relim()
 							loss_ax.autoscale_view()
@@ -534,17 +574,17 @@ class CNN:
 				with torch.no_grad(): # Checking validation data
 					self.current_epoch += 1
 					X_val = X_val.to(self.device) # We only do one batch of val
-					val_aug_1 = self.dataloader.augment_data(X_val, flip_prob=.5, rot_prob=0, noise_prob=.5)
-					val_aug_2 = self.dataloader.augment_data(X_val, flip_prob=.5, rot_prob=0, noise_prob=.5)
+					val_aug_1 = self.dataloader.augment_data(X_val, flip_prob=.4, rot_prob=0.1, noise_prob=.4)
+					val_aug_2 = self.dataloader.augment_data(X_val, flip_prob=.4, rot_prob=0.1, noise_prob=.4)
 
 					output_batch1 = self.forward(val_aug_1, dropout_prob=.0) 
 					output_batch2 = self.forward(val_aug_2, dropout_prob=.0) 
 					val_loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=.1) # Choise of temp is based on report
-					val_loss_value = val_loss.detach().cpu().item()
+					val_loss_value = val_loss.detach().cpu().item()/X_val.shape[-1]
 					self.history['val_losses'].append(val_loss_value)
 					print(f"\n======= Validation ======= \nLoss: {val_loss_value:.6f}\n====================\n")
 					if show_plots:
-						validation_steps = np.arange(1, len(validation_losses) + 1) * num_minibatches
+						validation_steps = np.arange(1, len(validation_losses) + 1)
 						validation_loss_line.set_data(validation_steps, validation_losses)
 						loss_ax.relim()
 						loss_ax.autoscale_view()
@@ -671,10 +711,11 @@ class CNN:
 		print(f"Checkpoint successfully saved to {filepath}")
 
 
-	def load_checkpoint(self, filepath: str, load_training_state: bool = True):
+	def load_checkpoint(self, filepath: str, load_training_state: bool = True, load_last_layer: bool = True):
 		"""Loads a checkpoint.
 
 		If load_training_state is false, only the model weights are restored.
+		If load_last_layer is false, the final trainable layer is left untouched.
 		"""
 		try:
 			checkpoint = torch.load("Saved_Networks/" + filepath)
@@ -708,16 +749,20 @@ class CNN:
 
 			
 
-		if len(model_state) != len(self.__param_layers):
+		layers_to_load = self.__param_layers if load_last_layer else self.__param_layers[:-1]
+		model_state_to_load = model_state if load_last_layer else model_state[:-1]
+
+		if len(model_state_to_load) != len(layers_to_load):
 			raise ValueError("The loaded model has a different number of layers than the current model!")
 			
 		with torch.no_grad():
-			for layer, loaded_state in zip(self.__param_layers, model_state):
+			for layer, loaded_state in zip(layers_to_load, model_state_to_load):
 				layer.W.copy_(loaded_state["W"])
-				layer.W.requires_grad = True
 				layer.b.copy_(loaded_state["b"])
-				layer.b.requires_grad = True
-				
+
+		for layer in self.__param_layers:
+			layer.W.requires_grad = True
+			layer.b.requires_grad = True
 		print(f"Checkpoint successfully loaded from {filepath}")
 
 	

@@ -133,6 +133,8 @@ class AdamW(optimizer):
         for layer in range(len(grads)):
             layer_grads: dict = grads[layer]
             for param in layer_grads.keys():
+                if layer_grads[param] is None:
+                    continue
                 param_grad = layer_grads[param].clone()
                 self.mt[layer][param] = self.b1*self.mt[layer][param] + (1-self.b1)*param_grad
                 self.vt[layer][param] = self.b2*self.vt[layer][param] + (1-self.b2)*param_grad**2
