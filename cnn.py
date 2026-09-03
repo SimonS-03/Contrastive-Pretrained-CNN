@@ -36,7 +36,7 @@ class CNN:
 			'train_accuracys': [], 'val_accuracys': [], 'learning_rates': []
 		}
 		"""The history of the training run. \\
-			'epochs', 'train_costs', 'train_losses', 'val_costs', 'val_losses',
+								self.__back_pass(lr, optim_grads, dropout_prob=self.dropout_prob)
 			'train_accuracys', 'val_accuracys'"""
 	
 		self.current_epoch = 0
@@ -85,7 +85,7 @@ class CNN:
 			x (torch.Tensor): The output of the whole network. (output_dim, n)"""
 
 		prev_layer = None
-		for layer in self.layers:
+		for i, layer in enumerate(self.layers):
 
 			if prev_layer == None and (isinstance(layer, Conv_Layer) or isinstance(layer, Pool_Layer)):
 				x = x.permute(3, 2, 0, 1).contiguous() # (n, nf, h, w)
@@ -98,7 +98,10 @@ class CNN:
 				#Flatten input
 				x = x.reshape(x.shape[0]*x.shape[1]*x.shape[2], x.shape[3])
 
-			x = layer.forward(x, dropout_prob)
+			if i == len(self.layers)-1:
+				x = layer.forward(x, dropout_prob=0)
+			else:
+				x = layer.forward(x, dropout_prob)
 			#if torch.any(x.isnan()):
 			#	raise ValueError("One item is NaN. ")
 			prev_layer = layer
@@ -202,13 +205,17 @@ class CNN:
 		return grads
 
 
-	def __back_pass(self, lr: float, grads: list[dict[str, float]]) -> None:
+	def __back_pass(self, lr: float, grads: list[dict[str, float]], dropout_prob: float = None) -> None:
 		"""Updates the network based on the gradients. 
 		
 		Args:
 			lr: learning rate,
 			grads: list of dictionaries containign gradient for each parameter.
+			dropout_prob: Dropout probability used in the forward pass.
 			"""
+
+		if dropout_prob is None:
+			dropout_prob = self.dropout_prob
 
 		for i in range(len(grads)):
 			cur_layer = self.__param_layers[i]
@@ -249,7 +256,6 @@ class CNN:
 			profile_warmup_batches (int): How many batches to run before starting the timing. To avoid timing one-time things. 
 			debug_logs (bool): If debugs should be calculated and printed. """
 
-		#Set all the label data to the same device
 		Y_train = Y_train.to(self.device)
 		Y_val = Y_val.to(self.device)
 		y_train = y_train.to(self.device)
@@ -378,8 +384,8 @@ class CNN:
 				self.history['epochs'].append(self.current_epoch)
 				self.history['val_steps'].append(update_step/num_minibatches)
 
-				val_cost = torch.tensor([0.0]).to(self.device)
 				val_loss = torch.tensor([0.0]).to(self.device)
+				val_cost = torch.tensor([0.0]).to(self.device)
 				val_minibatches = int(X_val.shape[-1] / batch_size)
 				for k in range(val_minibatches):
 					val_batch_start = k*batch_size
@@ -415,7 +421,7 @@ class CNN:
 
 	def contrastiveLearning(self, X_train: torch.Tensor, X_val: torch.Tensor,
 					 max_num_epochs: int = 40, batch_size: int = 100, epoch_save_step: int = 5,
-					shuffle_set: bool = True, show_plots: bool = True, debug_logs: bool = False, save_path: str = None):
+					shuffle_set: bool = True, show_plots: bool = True, debug_logs: bool = False, save_path: str = None, dropout_prob: float = 0.0):
 		""" Does contrastive self-supervised learning """
 
 		n_datapoints = X_train.shape[-1]
@@ -485,8 +491,8 @@ class CNN:
 						param_set["W"].grad = None
 						param_set["b"].grad = None
 					
-					output_batch1 = self.forward(aug_batch1, dropout_prob=.0) # (10, batch_size)
-					output_batch2 = self.forward(aug_batch2, dropout_prob=.0) # (10, batch_size)
+					output_batch1 = self.forward(aug_batch1, dropout_prob=dropout_prob) # (10, batch_size)
+					output_batch2 = self.forward(aug_batch2, dropout_prob=dropout_prob) # (10, batch_size)
 					if debug_logs: print(f"Output magnitude at step {update_step}: {torch.round(output_batch1.norm(), decimals=2)}")
 					loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=.1) # Choise of temp is based on report
 					loss.backward()
@@ -533,7 +539,7 @@ class CNN:
 					val_loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=.1) # Choise of temp is based on report
 					val_loss_value = val_loss.detach().cpu().item()
 					self.history['val_losses'].append(val_loss_value)
-					
+					print(f"\n======= Validation ======= \nLoss: {val_loss_value:.6f}\n====================\n")
 					if show_plots:
 						validation_steps = np.arange(1, len(validation_losses) + 1) * num_minibatches
 						validation_loss_line.set_data(validation_steps, validation_losses)

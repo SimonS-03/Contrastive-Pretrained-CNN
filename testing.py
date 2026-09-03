@@ -603,7 +603,7 @@ def time_network():
 
 
 if __name__ == "__main__":
-	test_train_contrastive_tiny(checkpoint=None)
+	#test_train_contrastive_tiny(checkpoint=None)
 	#time_network()
 	test_train_augment_tiny()
 	#test_overfit_small_sample()

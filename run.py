@@ -6,11 +6,12 @@ import mlp, cnn, convolution, dataloader, pooling
 import utils
 
 class Settings:
-	def __init__(self, training_samples = 1000, validation_samples = 1000, batch_size=100, show_plots: bool = True):
+	def __init__(self, training_samples = 1000, validation_samples = 1000, batch_size=100, show_plots: bool = True, dropout_prob: float = 0.3):
 		self.training_samples = training_samples
 		self.validation_samples = validation_samples
 		self.batch_size = batch_size
 		self.show_plots = show_plots
+		self.dropout_prob = dropout_prob
 
 def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, contrastive_epochs: int = 20, epoch_save_step: int = 5):
 	"""Runs contrastive learning on the full dataset."""
@@ -74,8 +75,8 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 
 	try: 
 		cnn_test.contrastiveLearning(X_train=X_train, X_val=X_val, \
-					batch_size=settings.batch_size, max_num_epochs=contrastive_epochs, show_plots=True, debug_logs=False)
-		cnn_test.save_checkpoint(checkpoint) if checkpoint else None
+					batch_size=settings.batch_size, max_num_epochs=contrastive_epochs, show_plots=True, debug_logs=False, dropout_prob=settings.dropout_prob)
+		cnn_test.save_checkpoint(f"{checkpoint}_contrastive") if checkpoint else None
 	except KeyboardInterrupt:
 		print("Training interupted, saving snapshot...")
 		if checkpoint: cnn_test.save_checkpoint(f"{checkpoint}_contrastive_interupted")
@@ -151,12 +152,13 @@ def run_supervised(settings: Settings = Settings(), checkpoint: str = None, supe
 
 
 
-def run_full(checkpoint: str = None, contrastive_epochs: int = 20, supervised_epochs: int = 20):
+def run_full(settings: Settings = Settings(), checkpoint: str = None, contrastive_epochs: int = 20, supervised_epochs: int = 20):
 	"""Runs both contrastive learning and supervised training on the full dataset."""
-	settings = Settings(training_samples=1000, validation_samples=100, batch_size=100, show_plots=True)
-
-	run_contrastive(settings, checkpoint=f"{checkpoint}_contrastive", contrastive_epochs=contrastive_epochs, epoch_save_step=5)
+	run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=contrastive_epochs, epoch_save_step=5)
 	run_supervised(settings, checkpoint=checkpoint, supervised_epochs=supervised_epochs, epoch_save_step=5)
 
 if __name__ == "__main__":
-	run_full(checkpoint=None)
+	checkpoint= None
+	settings = Settings(training_samples=500, validation_samples=100, batch_size=100, show_plots=True, dropout_prob=0)
+	#run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=20, epoch_save_step=1)
+	run_full(settings, checkpoint="full_test")
