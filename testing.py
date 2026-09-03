@@ -4,8 +4,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import pickle
-import mlp, cnn, convolution, dataloader, pooling
+import mlp, cnn, convolution, dataloader, pooling, utils
 import utils
+import math
 
 def test_cyclic_lr() -> None:
 	"""Test the increasing learning rate. """
@@ -330,19 +331,22 @@ def test_train_augment_tiny():
 	device = "mps"
 
 	dataload = dataloader.Dataloader()
-	data = dataload.load_train_data(print_progress=True, train_lim=1000, val_lim=200)
+	data = dataload.load_train_data(print_progress=True, train_lim=10000, val_lim=2000)
 	X_train = dataload.normalize(data['X_train'])
 	del data['X_train']
 	X_val = dataload.normalize(data['X_val'], use_train_data=True)
 	del data['X_val']
 	dataload.set_normal_device(device=device)
 
+	batch_size = 200
+	n_train = X_train.shape[-1]
+
 	f = 3
 	nf = 128
 	stride = 1
 	padding = 1
 	rgb = 3
-	lam = 1e-4
+	lam = 2.5e-4
 	n_classes = data['Y_train'].shape[0]
 	width = X_train.shape[0]
 
@@ -371,17 +375,18 @@ def test_train_augment_tiny():
 	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="linear")
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
-					lam=lam, device=device, dropout_prob=0.3)
-
-	print("After initializing the network")
+					lam=lam, device=device, dropout_prob=0.5)
 	
 	cnn_test.dataloader = dataload
-	
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-4, max_lr=1e-3)
+
+	k = 2
+	iters_per_epoch = n_train / batch_size
+	starting_cycle_length = k * iters_per_epoch    # k in [2, 10]
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=starting_cycle_length, min_lr=1e-4, max_lr=1e-2)
 	adamW_optim = utils.AdamW()
 	cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_val, \
 					  Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
-						batch_size=200, max_num_epochs=100, show_plots=True, profile=True, debug_logs=True)
+						batch_size=batch_size, max_num_epochs=100, show_plots=True, profile=True, debug_logs=False)
 
 def test_train_contrastive_tiny(checkpoint: str = None):
 	"""Augment tiny images. Checkpoint should be filepath to load/save """
@@ -600,6 +605,127 @@ def time_network():
 
 	print(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=15))
 
+
+class LRRangeTestSchedule(utils.lr_schedule):
+	"""Ramps LR exponentially from min_lr to max_lr over total_steps updates.
+	Throwaway schedule for finding a good min_lr/max_lr — not for real training."""
+	def __init__(self, min_lr: float = 1e-7, max_lr: float = 1.0, total_steps: int = 500):
+		self.log_min = math.log10(min_lr)
+		self.log_max = math.log10(max_lr)
+		self.total_steps = total_steps
+
+	def get_state(self):
+		return {"log_min": self.log_min, "log_max": self.log_max, "total_steps": self.total_steps}
+
+	def set_state(self, state):
+		self.log_min = state["log_min"]
+		self.log_max = state["log_max"]
+		self.total_steps = state["total_steps"]
+
+	def get_lr(self, iteration):
+		frac = min(iteration / self.total_steps, 1.0)
+		log_lr = self.log_min + frac * (self.log_max - self.log_min)
+		return 10 ** log_lr
+
+
+def run_lr_range_test(device: str = "mps", train_lim: int = 8000, val_lim: int = 500,
+					   batch_size: int = 200, min_lr: float = 1e-7, max_lr: float = 1.0,
+					   lam: float = 2.5e-4, dropout_prob: float = 0.3, smoothing_window: int = 15,
+					   seed: int = 42) -> dict:
+	"""Runs an LR range test on a fresh CNN instance, plots loss vs. LR, and returns
+	a suggested min_lr/max_lr along with the raw data for further inspection."""
+	torch.manual_seed(seed)
+
+	dataload = dataloader.Dataloader()
+
+	# Subset load — data is pre-shuffled by split_tiny_imagenet's stratified split
+	data = dataload.load_train_data(train_lim=train_lim, val_lim=val_lim, print_progress=True)
+	X_train = dataload.normalize(data['X_train'])
+	del data['X_train']
+	X_val = dataload.normalize(data['X_val'], use_train_data=True)
+	del data['X_val']
+	dataload.set_normal_device(device=device)
+
+	n_classes = data['Y_train'].shape[0]
+	width = X_train.shape[0]
+	rgb = 3
+	f, nf, stride, padding = 3, 128, 1, 1
+
+	conv_1 = convolution.Conv_Layer(filter_width=f, channels=rgb, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+	
+	conv_2 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+
+	pool_1 = pooling.Pool_Layer(kernel=2, stride=2, padding=0)
+
+	conv_3 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+	
+	conv_4 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+
+	pool_2 = pooling.Pool_Layer(kernel=2, stride=2, padding=0)
+
+	conv_5 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+	
+	pool_3 = pooling.Pool_Layer(kernel=2, stride=2, padding=0)
+
+	mlp_1 = mlp.MLP_Layer(input_dim=(width//2**3)**2*nf, output_dim=400, activation_function="ReLu")
+
+	mlp_2 = mlp.MLP_Layer(input_dim=400, output_dim=400, activation_function="ReLu")
+
+	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="softmax")
+
+	cnn_lrtest = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3,
+						   mlp_1, mlp_2, mlp_3], lam=lam, device=device, dropout_prob=dropout_prob)
+	cnn_lrtest.dataloader = dataload
+
+	num_minibatches = train_lim // batch_size
+	schedule = LRRangeTestSchedule(min_lr=min_lr, max_lr=max_lr, total_steps=num_minibatches)
+	optim = utils.AdamW()
+
+	cnn_lrtest.minibatchGD(
+		X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'],
+		X_val=X_val, Y_val=data['Y_val'], y_val=data['y_val'],
+		schedule=schedule, optim=optim,
+		batch_size=batch_size, max_num_epochs=1,
+		shuffle_set=True, show_plots=True, profile=False, debug_logs=False,
+	)
+
+	lrs = np.array(cnn_lrtest.history['learning_rates'])
+	losses = np.array(cnn_lrtest.history['train_losses'])
+
+	if len(losses) >= smoothing_window:
+		kernel = np.ones(smoothing_window) / smoothing_window
+		losses_smooth = np.convolve(losses, kernel, mode='valid')
+		lrs_smooth = lrs[smoothing_window - 1:]
+	else:
+		losses_smooth, lrs_smooth = losses, lrs
+
+	log_lrs_smooth = np.log10(lrs_smooth)
+	slopes = np.diff(losses_smooth) / np.diff(log_lrs_smooth)
+	steepest_idx = np.argmin(slopes)  # most negative slope = fastest loss drop
+	suggested_max_lr = lrs_smooth[steepest_idx]
+	suggested_min_lr = suggested_max_lr / 10
+
+	plt.figure(figsize=(8, 5))
+	plt.plot(lrs, losses, alpha=0.3, label="raw")
+	plt.plot(lrs_smooth, losses_smooth, label="smoothed")
+	plt.axvline(suggested_max_lr, color='r', linestyle='--', label=f"suggested max_lr ≈ {suggested_max_lr:.2e}")
+	plt.axvline(suggested_min_lr, color='g', linestyle='--', label=f"suggested min_lr ≈ {suggested_min_lr:.2e}")
+	plt.xscale('log')
+	plt.xlabel("Learning rate")
+	plt.ylabel("Training loss (cross-entropy)")
+	plt.title("LR range test")
+	plt.legend()
+	plt.show()
+
+	print(f"Suggested min_lr: {suggested_min_lr:.2e}")
+	print(f"Suggested max_lr: {suggested_max_lr:.2e}")
+	print("Check the plot before trusting these — pick max_lr just before the curve flattens or turns upward.")
+
+	return {
+		"lrs": lrs, "losses": losses,
+		"lrs_smooth": lrs_smooth, "losses_smooth": losses_smooth,
+		"suggested_min_lr": suggested_min_lr, "suggested_max_lr": suggested_max_lr,
+	}
 
 
 if __name__ == "__main__":
