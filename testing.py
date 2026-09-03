@@ -330,7 +330,7 @@ def test_train_augment_tiny():
 	device = "mps"
 
 	dataload = dataloader.Dataloader()
-	data = dataload.load_train_data(print_progress=True, train_lim=None, val_lim=None)
+	data = dataload.load_train_data(print_progress=True, train_lim=1000, val_lim=200)
 	X_train = dataload.normalize(data['X_train'])
 	del data['X_train']
 	X_val = dataload.normalize(data['X_val'], use_train_data=True)
@@ -342,7 +342,7 @@ def test_train_augment_tiny():
 	stride = 1
 	padding = 1
 	rgb = 3
-	lam = 0.01
+	lam = 1e-4
 	n_classes = data['Y_train'].shape[0]
 	width = X_train.shape[0]
 
@@ -371,7 +371,7 @@ def test_train_augment_tiny():
 	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="softmax")
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
-					lam=lam, device=device)
+					lam=lam, device=device, dropout_prob=0.3)
 
 	print("After initializing the network")
 	
@@ -668,7 +668,7 @@ def time_network():
 
 
 if __name__ == "__main__":
-	test_train_contrastive_tiny(checkpoint="optimizer_save_test")
+	#test_train_contrastive_tiny(checkpoint="optimizer_save_test")
 	#time_network()
-	#test_train_augment_tiny()
+	test_train_augment_tiny()
 	#test_overfit_small_sample()

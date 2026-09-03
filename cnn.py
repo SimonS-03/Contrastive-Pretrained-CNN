@@ -31,8 +31,8 @@ class CNN:
 		self.lr_schedule = lr_schedule
 
 		self.history = {
-			'epochs': [], 'train_costs': [], 'train_losses': [],
-			'val_costs': [], 'val_losses': [],
+			'epochs': [], 'train_steps': [], 'train_costs': [], 'train_losses': [],
+			'val_steps': [], 'val_costs': [], 'val_losses': [],
 			'train_accuracys': [], 'val_accuracys': [], 'learning_rates': []
 		}
 		"""The history of the training run. \\
@@ -228,7 +228,7 @@ class CNN:
 
 	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
 				 y_val:torch.Tensor, schedule: lr_schedule, optim: optimizer, max_num_epochs: int = 40, batch_size: int = 100, 
-					shuffle_set: bool = True, show_plots: bool = True, epoch_plot_period: int = 10, profile:bool=False, 
+					shuffle_set: bool = True, show_plots: bool = True, epoch_plot_period: int = 1, profile:bool=False, 
 					profile_batches:int=30, profile_warmup_batches:int=5, debug_logs:bool=False):
 		""" Does end-to-end minibatch gradient descent with the given training data. 
 		
@@ -277,9 +277,6 @@ class CNN:
 
 			#Get the permutation of this epoch
 			permutation = torch.randperm(n_datapoints) if shuffle_set else torch.arange(n_datapoints)
-	
-			total_train_cost = 0
-			total_train_loss = 0
 
 			for j in range(num_minibatches):
 				if debug_logs:
@@ -314,8 +311,21 @@ class CNN:
 				Y_batch = Y_train[:, batch_idx]
 				batch_cost, batch_loss = self.cost_function(P_batch, Y_batch)
 
-				total_train_cost += batch_cost.detach()
-				total_train_loss += batch_loss.detach()
+				if show_plots:
+					self.history['train_steps'].append(update_step / num_minibatches)
+					self.history['train_costs'].append(batch_cost.item())
+					self.history['train_losses'].append(batch_loss.item())
+
+					ax1.clear()
+					ax1.plot(self.history['train_steps'], self.history['train_costs'], label="Training Cost", color="y")
+					ax1.plot(self.history['train_steps'], self.history['train_losses'], label="Training Loss", linestyle='--', color="r")
+					ax1.plot(self.history['val_steps'], self.history['val_costs'], label="Validation Cost", color="b")
+					ax1.plot(self.history['val_steps'], self.history['val_losses'], label="Validation Loss", linestyle='--', color="c")
+					ax1.set_xlabel("Epoch")
+					ax1.legend()
+					ax1.set_title(f"Train/val cost + loss, lam={self.lam}")
+					plt.pause(0.001)
+
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["cost"] += t - t_start; t_start = t
 
@@ -326,7 +336,7 @@ class CNN:
 					param_set["W"].grad = None
 					param_set["b"].grad = None
 
-				batch_cost.backward()
+				batch_loss.backward()
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["backward"] += t - t_start; t_start = t
 				with torch.no_grad():
@@ -366,8 +376,7 @@ class CNN:
 
 			with torch.no_grad():
 				self.history['epochs'].append(self.current_epoch)
-				self.history['train_costs'].append((total_train_cost.detach()/num_minibatches).item())
-				self.history['train_losses'].append((total_train_loss.detach()/num_minibatches).item())
+				self.history['val_steps'].append(update_step/num_minibatches)
 
 				val_cost = torch.tensor([0.0]).to(self.device)
 				val_loss = torch.tensor([0.0]).to(self.device)
@@ -376,7 +385,7 @@ class CNN:
 					val_batch_start = k*batch_size
 					val_batch_end = (k+1)*batch_size
 					X_val_batch = X_val[..., val_batch_start:val_batch_end]
-					X_val_batch.to(self.device)
+					X_val_batch = X_val_batch.to(self.device)
 					Y_val_batch = Y_val[..., val_batch_start:val_batch_end]
 					P_val = self.forward(X_val_batch, dropout_prob=0)
 					val_cost_cur, val_loss_cur = self.cost_function(P_val, Y_val_batch)
@@ -390,22 +399,11 @@ class CNN:
 					self.history['train_accuracys'].append(self.get_accuracy(X_train, y_train, batch_size).item())
 
 			pbar.set_postfix(loss = f"{round(val_loss.item(), 4)}")
-			
-			nbr_entries = len(self.history['train_costs'])
-			x_axis = self.history['epochs']
-			ax1.clear()
-			ax1.plot(x_axis, self.history['train_costs'], label = "Training Cost", color = "y")
-			ax1.plot(x_axis, self.history['train_losses'], label = "Training Loss", linestyle='--', color = "r")
-			ax1.plot(x_axis, self.history['val_costs'], label = "Validation Cost", color = "b")
-			ax1.plot(x_axis, self.history['val_losses'], label = "Validation Loss", linestyle = '--', color = "c")
-			ax1.set_xlabel("Epoch")
-			ax1.legend()
-			ax1.set_title(f"Train/val cost + loss, lam={self.lam}")
 
 			ax2.clear()
 			ax2.set_title("Train/Val accuracy over epochs")
-			ax2.plot(x_axis, self.history['val_accuracys'], label="validation")
-			ax2.plot(x_axis, self.history['train_accuracys'], label="training")
+			ax2.plot(self.history['epochs'], self.history['val_accuracys'], label="validation")
+			ax2.plot(self.history['epochs'], self.history['train_accuracys'], label="training")
 			ax2.set_xlabel("Epoch")
 			ax2.legend()
 
@@ -510,7 +508,7 @@ class CNN:
 						optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 						self.__back_pass(lr, optim_grads)
 						self.show_filters(self.layers[0].W, freeze=False, step=update_step)
-						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]["W"].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\n====================\n")
+						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]['W'].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\n====================\n")
 						epoch_loss = loss.detach().cpu().item()
 						training_losses.append(epoch_loss)
 						if show_plots:
@@ -593,6 +591,7 @@ class CNN:
 			batch_start = i*batch_size
 			batch_end = (i+1)*batch_size
 			X_batch = X[..., batch_start:batch_end]
+			X_batch = X_batch.to(self.device)
 			y_batch = y[batch_start:batch_end]
 
 			P = self.forward(X_batch, dropout_prob=0) # (10, batch_size)
