@@ -75,11 +75,11 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 
 	try: 
 		cnn_test.contrastiveLearning(X_train=X_train, X_val=X_val, \
-					batch_size=settings.batch_size, max_num_epochs=contrastive_epochs, show_plots=True, debug_logs=False, dropout_prob=settings.dropout_prob)
-		cnn_test.save_checkpoint(f"{checkpoint}_contrastive") if checkpoint else None
+					batch_size=settings.batch_size, max_num_epochs=contrastive_epochs, epoch_save_step=epoch_save_step, show_plots=True, debug_logs=False, save_path=checkpoint, dropout_prob=settings.dropout_prob)
+		cnn_test.save_checkpoint(f"{checkpoint}_contrastive", include_training_state=False) if checkpoint else None
 	except KeyboardInterrupt:
 		print("Training interupted, saving snapshot...")
-		if checkpoint: cnn_test.save_checkpoint(f"{checkpoint}_contrastive_interupted")
+		if checkpoint: cnn_test.save_checkpoint(f"{checkpoint}_contrastive_interupted", include_training_state=False)
 
 def run_supervised(settings: Settings = Settings(), checkpoint: str = None, supervised_epochs: int = 20, epoch_save_step: int = 5):
 	"""Runs contrastive learning on the full dataset."""
@@ -125,7 +125,7 @@ def run_supervised(settings: Settings = Settings(), checkpoint: str = None, supe
 
 	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="softmax")
 
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-2, max_lr=1e-1)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-4, max_lr=1e-3)
 	adamW_optim = utils.AdamW()
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
@@ -136,7 +136,7 @@ def run_supervised(settings: Settings = Settings(), checkpoint: str = None, supe
 
 	if checkpoint: 
 		try:
-			cnn_test.load_checkpoint(f"{checkpoint}_contrastive")
+			cnn_test.load_checkpoint(f"{checkpoint}_contrastive", load_training_state=False)
 		except:
 			print(f"Could not find checkpoint with filename {checkpoint}. Starting from scratch.")
 
@@ -144,7 +144,7 @@ def run_supervised(settings: Settings = Settings(), checkpoint: str = None, supe
 	try: 
 		cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_val, \
 					Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
-					batch_size=settings.batch_size, max_num_epochs=supervised_epochs, show_plots=True, profile=True, debug_logs=True)
+					batch_size=settings.batch_size, max_num_epochs=supervised_epochs, show_plots=True, profile=True, debug_logs=True, save_path=checkpoint, epoch_save_step=epoch_save_step)
 		if checkpoint: cnn_test.save_checkpoint(f"{checkpoint}_supervised")
 	except KeyboardInterrupt:
 		print("Training interupted, saving snapshot...")
@@ -161,4 +161,5 @@ if __name__ == "__main__":
 	checkpoint= None
 	settings = Settings(training_samples=500, validation_samples=100, batch_size=100, show_plots=True, dropout_prob=0)
 	#run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=20, epoch_save_step=1)
-	run_full(settings, checkpoint="full_test")
+	run_supervised(settings, checkpoint=None, supervised_epochs=20, epoch_save_step=5)
+	#run_full(settings, checkpoint="full_test")

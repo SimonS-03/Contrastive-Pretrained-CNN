@@ -236,7 +236,7 @@ class CNN:
 	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
 				 y_val:torch.Tensor, schedule: lr_schedule, optim: optimizer, max_num_epochs: int = 40, batch_size: int = 100, 
 					shuffle_set: bool = True, show_plots: bool = True, epoch_plot_period: int = 1, profile:bool=False, 
-					profile_batches:int=30, profile_warmup_batches:int=5, debug_logs:bool=False):
+					save_path: str = None, epoch_save_step: int = 5, profile_batches:int=30, profile_warmup_batches:int=5, debug_logs:bool=False):
 		""" Does end-to-end minibatch gradient descent with the given training data. 
 		
 		Args:
@@ -403,6 +403,9 @@ class CNN:
 				if X_val is not None and y_val is not None and y_train is not None:
 					self.history['val_accuracys'].append(self.get_accuracy(X_val, y_val, batch_size).item())
 					self.history['train_accuracys'].append(self.get_accuracy(X_train, y_train, batch_size).item())
+
+				if save_path is not None and (self.current_epoch % epoch_save_step == 0 or self.current_epoch == max_num_epochs):
+					self.save_checkpoint(f"{save_path}_epoch_{self.current_epoch}")
 
 			pbar.set_postfix(loss = f"{round(val_loss.item(), 4)}")
 
@@ -640,8 +643,12 @@ class CNN:
 		return torch.sum(corrects) / X.shape[1]
 
 
-	def save_checkpoint(self, filepath: str):
-		"""Saves the weights, biases, history, and elapsed time to a file."""
+	def save_checkpoint(self, filepath: str, include_training_state: bool = True):
+		"""Saves the model weights to a file.
+
+		If include_training_state is true, the training history, epoch counter, optimizer state,
+		and learning-rate schedule state are stored as well.
+		"""
 		model_state = []
 		for layer in self.__param_layers:
 			layer_state = {
@@ -650,24 +657,25 @@ class CNN:
 			}
 			model_state.append(layer_state)
 
-		# Saving optim and lr_schedule states if they exist
-		optim_state = self.adamW_optim.get_state() if self.adamW_optim is not None else None
-		lr_schedule_state = self.lr_schedule.get_state() if self.lr_schedule is not None and hasattr(self.lr_schedule, "get_state") else None
-
-		
-		checkpoint = {
-			"model_state": model_state,
-			"history": self.history,
-			"current_epoch": self.current_epoch,
-			"optim_state": optim_state,
-			"lr_schedule_state": lr_schedule_state
-		}
+		checkpoint = {"model_state": model_state}
+		if include_training_state:
+			optim_state = self.adamW_optim.get_state() if self.adamW_optim is not None else None
+			lr_schedule_state = self.lr_schedule.get_state() if self.lr_schedule is not None and hasattr(self.lr_schedule, "get_state") else None
+			checkpoint.update({
+				"history": self.history,
+				"current_epoch": self.current_epoch,
+				"optim_state": optim_state,
+				"lr_schedule_state": lr_schedule_state
+			})
 		torch.save(checkpoint, "Saved_Networks/" + filepath)
 		print(f"Checkpoint successfully saved to {filepath}")
 
 
-	def load_checkpoint(self, filepath: str):
-		"""Loads a checkpoint so you can resume training and plots."""
+	def load_checkpoint(self, filepath: str, load_training_state: bool = True):
+		"""Loads a checkpoint.
+
+		If load_training_state is false, only the model weights are restored.
+		"""
 		try:
 			checkpoint = torch.load("Saved_Networks/" + filepath)
 		except:
@@ -679,15 +687,24 @@ class CNN:
 			model_state = checkpoint
 		else:
 			model_state = checkpoint.get("model_state")
-			self.history = checkpoint.get("history", self.history)
-			self.total_training_time = checkpoint.get("total_training_time", 0.0)
-			self.current_epoch = checkpoint.get("current_epoch", 0)
+			if load_training_state:
+				self.history = checkpoint.get("history", self.history)
+				self.total_training_time = checkpoint.get("total_training_time", 0.0)
+				self.current_epoch = checkpoint.get("current_epoch", 0)
 
-			self.adamW_optim = AdamW()
-			self.adamW_optim.set_state(checkpoint.get("optim_state", None))
+				self.adamW_optim = AdamW()
+				self.adamW_optim.set_state(checkpoint.get("optim_state", None))
 
-			self.lr_schedule = cyclic_increasing_lr()
-			self.lr_schedule.set_state(checkpoint.get("lr_schedule_state", None))
+				self.lr_schedule = cyclic_increasing_lr()
+				self.lr_schedule.set_state(checkpoint.get("lr_schedule_state", None))
+			else:
+				self.history = {
+					'epochs': [], 'train_steps': [], 'train_costs': [], 'train_losses': [],
+					'val_steps': [], 'val_costs': [], 'val_losses': [],
+					'train_accuracys': [], 'val_accuracys': [], 'learning_rates': []
+				}
+				self.total_training_time = 0.0
+				self.current_epoch = 0
 
 			
 
