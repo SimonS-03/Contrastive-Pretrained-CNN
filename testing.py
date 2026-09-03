@@ -330,10 +330,12 @@ def test_train_augment_tiny():
 	device = "mps"
 
 	dataload = dataloader.Dataloader()
-	data = dataload.load_train_data(print_progress=True, train_lim=10000, val_lim=1000)
-	X_train = data['X_train'].to(device)
-	X_train = dataload.normalize(X_train)
-	X_val = dataload.normalize(data['X_val'].to(device), use_train_data=True)
+	data = dataload.load_train_data(print_progress=True, train_lim=None, val_lim=None)
+	X_train = dataload.normalize(data['X_train'])
+	del data['X_train']
+	X_val = dataload.normalize(data['X_val'], use_train_data=True)
+	del data['X_val']
+	dataload.set_normal_device(device=device)
 
 	f = 3
 	nf = 128
@@ -370,6 +372,8 @@ def test_train_augment_tiny():
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
 					lam=lam, device=device)
+
+	print("After initializing the network")
 	
 	cnn_test.dataloader = dataload
 	
@@ -377,7 +381,7 @@ def test_train_augment_tiny():
 	adamW_optim = utils.AdamW()
 	cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_val, \
 					  Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
-						batch_size=200, max_num_epochs=100, show_plots=True, profile=True, debug_logs=False)
+						batch_size=200, max_num_epochs=100, show_plots=True, profile=True, debug_logs=True)
 
 
 def test_Mx():
@@ -579,7 +583,7 @@ def time_network():
 		cost.backward()
 		cnn_test.sync()
 
-	prof = torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU])
+	prof = torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU], acc_events=True)
 
 	for _ in range(30):
 		P_batch = cnn_test.forward(X_batch, cnn_test.dropout_prob)
@@ -596,6 +600,6 @@ def time_network():
 
 
 if __name__ == "__main__":
-	time_network()
-	#test_train_augment_tiny()
+	#time_network()
+	test_train_augment_tiny()
 	#test_overfit_small_sample()

@@ -414,11 +414,23 @@ class Dataloader:
             X_norm (torch.Tensor): The normalized data. (height, width, rgb, n)"""
         
         if not use_train_data:
-            
             self.X_mean = torch.mean(X, dim = 3).unsqueeze(dim=3) # (height, width, rgb, 1)
             self.X_std = torch.std(X, dim = 3).unsqueeze(dim=3) # (height, width, rgb, 1)
+
+        X -= self.X_mean
+        X /= self.X_std + 1e-8
         
-        return (X - self.X_mean) / (self.X_std + 1e-8)
+        return X
+
+
+    def set_normal_device(self, device:str) -> None:
+        """Set the device to self.X_mean and self.X_std. Call this function after doing the initial normalization of the whole dataset. 
+        
+        Args:
+            device (str): Which device to run the model on. (cpu, mps)"""
+
+        self.X_mean = self.X_mean.to(device)
+        self.X_std = self.X_std.to(device)
 
 
     def LoadBatch(self, filename:str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

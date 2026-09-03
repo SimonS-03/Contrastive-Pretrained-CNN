@@ -247,10 +247,8 @@ class CNN:
 			profile_warmup_batches (int): How many batches to run before starting the timing. To avoid timing one-time things. 
 			debug_logs (bool): If debugs should be calculated and printed. """
 
-		#Set all the data to the same device
-		X_train = X_train.to(self.device)
+		#Set all the label data to the same device
 		Y_train = Y_train.to(self.device)
-		X_val = X_val.to(self.device)
 		Y_val = Y_val.to(self.device)
 		y_train = y_train.to(self.device)
 		y_val = y_val.to(self.device)
@@ -275,12 +273,9 @@ class CNN:
 			#print(f"Started epoch {i}")
 			self.current_epoch += 1
 
-			permutation = torch.randperm(n_datapoints)
-			if shuffle_set:
-				X_train_shuffled = X_train[..., permutation]
-				Y_train_shuffled = Y_train[:, permutation]
+			#Get the permutation of this epoch
+			permutation = torch.randperm(n_datapoints) if shuffle_set else torch.arange(n_datapoints)
 	
-			
 			total_train_cost = 0
 			total_train_loss = 0
 
@@ -296,7 +291,11 @@ class CNN:
 				batch_start = j*batch_size
 				batch_end = (j+1)*batch_size
 
-				X_batch = X_train_shuffled[..., batch_start:batch_end]
+				#Used to get the batch indexes directly without shuffling the whole dataset
+				batch_idx = permutation[batch_start:batch_end]
+
+				X_batch = X_train[..., batch_idx]
+				X_batch = X_batch.to(self.device)
 
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["data_slice"] += t - t_start; t_start = t
@@ -310,7 +309,7 @@ class CNN:
 				P_batch = self.forward(X_aug, self.dropout_prob)
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["forward"] += t - t_start; t_start = t
-				Y_batch = Y_train_shuffled[:, batch_start:batch_end]
+				Y_batch = Y_train[:, batch_idx]
 				batch_cost, batch_loss = self.cost_function(P_batch, Y_batch)
 
 				total_train_cost += batch_cost.detach()
@@ -375,6 +374,7 @@ class CNN:
 					val_batch_start = k*batch_size
 					val_batch_end = (k+1)*batch_size
 					X_val_batch = X_val[..., val_batch_start:val_batch_end]
+					X_val_batch.to(self.device)
 					Y_val_batch = Y_val[..., val_batch_start:val_batch_end]
 					P_val = self.forward(X_val_batch, dropout_prob=0)
 					val_cost_cur, val_loss_cur = self.cost_function(P_val, Y_val_batch)
