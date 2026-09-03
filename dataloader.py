@@ -25,8 +25,8 @@ class Dataloader:
             return
 
         self.augmentations = trans.Compose([
-            trans.RandomResizedCrop(size=(height, width), scale=(.35, 1), antialias=True),
-            trans.ColorJitter(brightness=.5, contrast=.5, saturation=.5, hue=.1),
+            trans.RandomResizedCrop(size=(height, width), scale=(.65, 1), antialias=True),
+            trans.ColorJitter(brightness=.3, contrast=.3, saturation=.3, hue=.05),
             trans.RandomGrayscale(p=.1)
         ])
 
@@ -162,8 +162,8 @@ class Dataloader:
         X[..., noise_ind] = torch.clamp(noise_batch + noise, min=min_value, max=max_value)
 
 
-    def augment_data(self, X:torch.Tensor, flip_prob:float=0.5, rot_prob:float=0.1, noise_prob:float=0.2, \
-                     noise_std:float=0.05, individual_aug:bool=True) -> torch.Tensor:
+    def augment_data(self, X:torch.Tensor, flip_prob:float=0.5, rot_prob:float=0.05, noise_prob:float=0.2, \
+                     noise_std:float=0.02, individual_aug:bool=True) -> torch.Tensor:
         """Augment the data by rotating, flipping and adding noise. Clones the data. 
         
         Args:

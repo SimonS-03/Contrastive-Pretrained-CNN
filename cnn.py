@@ -329,8 +329,8 @@ class CNN:
 
 				if show_plots:
 					self.history['train_steps'].append(update_step / num_minibatches)
-					self.history['train_costs'].append(batch_cost.item())
-					self.history['train_losses'].append(batch_loss.item())
+					self.history['train_costs'].append(batch_cost.item()/batch_size)
+					self.history['train_losses'].append(batch_loss.item()/batch_size)
 
 					ax1.clear()
 					ax1.plot(self.history['train_steps'], self.history['train_costs'], label="Training Cost", color="y")
@@ -422,8 +422,8 @@ class CNN:
 					val_cost_cur, val_loss_cur = self.cost_function(P_val, Y_val_batch)
 					val_cost += val_cost_cur; val_loss += val_loss_cur
 
-				self.history['val_costs'].append(val_cost.detach().item())
-				self.history['val_losses'].append(val_loss.detach().item())
+				self.history['val_costs'].append(val_cost.detach().item()/X_val.shape[-1])
+				self.history['val_losses'].append(val_loss.detach().item()/X_val.shape[-1])
 			
 				if X_val is not None and y_val is not None and y_train is not None:
 					self.history['val_accuracys'].append(self.get_accuracy(X_val, y_val, batch_size).item())
