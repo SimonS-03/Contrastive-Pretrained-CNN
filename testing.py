@@ -379,8 +379,8 @@ def test_train_augment_tiny():
 					  Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
 						batch_size=200, max_num_epochs=100, show_plots=True, profile=True, debug_logs=False)
 
-def test_train_contrastive_tiny(load_saved = False):
-	"""Augment tiny images. """
+def test_train_contrastive_tiny(checkpoint: str = None):
+	"""Augment tiny images. Checkpoint should be filepath to load/save """
 	torch.manual_seed(42)
 
 	device = "mps"
@@ -398,8 +398,6 @@ def test_train_contrastive_tiny(load_saved = False):
 	lam = 0
 	n_classes = data['Y_train'].shape[0]
 	width = X_train.shape[0]
-
-	filename = f"f{f}_nf{nf}_new_standard"
 
 	conv_1 = convolution.Conv_Layer(filter_width=f, channels=rgb, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
 	#conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
@@ -425,23 +423,30 @@ def test_train_contrastive_tiny(load_saved = False):
 
 	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="softmax")
 
-	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
-					lam=lam, device=device)
-	
-	cnn_test.dataloader = dataload
+
 	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-2, max_lr=1e-1)
 	adamW_optim = utils.AdamW()
 
-	if load_saved: cnn_test.load_checkpoint(filename)
+	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
+					lam=lam, device=device, lr_schedule=cyclic_schedule, adamW_optim=adamW_optim)
+	
+	cnn_test.dataloader = dataload
+	
+
+	if checkpoint: 
+		try:
+			cnn_test.load_checkpoint(checkpoint)
+		except:
+			print(f"Could not find checkpoint with filename {checkpoint}. Starting from scratch.")
 
 	try: 
-		cnn_test.contrastiveLearning(X_train=X_train, schedule=cyclic_schedule, optim=adamW_optim, \
+		cnn_test.contrastiveLearning(X_train=X_train, \
 					batch_size=100, max_num_epochs=20, show_plots=True, debug_logs=False)
 		cnn_test.show_filters(cnn_test.layers[0].W, freeze=True)
-		cnn_test.save_checkpoint(filename)
+		if checkpoint: cnn_test.save_checkpoint(checkpoint)
 	except KeyboardInterrupt:
-		print("Training interupted, saving model...")
-		cnn_test.save_checkpoint(filename)
+		print("Training interupted...")
+		if checkpoint: cnn_test.save_checkpoint(checkpoint)
 
 def test_Mx():
 	"""Test the new "get Mx". """
@@ -659,7 +664,7 @@ def time_network():
 
 
 if __name__ == "__main__":
-	test_train_contrastive_tiny(True)
+	test_train_contrastive_tiny(checkpoint="optimizer_save_test")
 	#time_network()
 	#test_train_augment_tiny()
 	#test_overfit_small_sample()

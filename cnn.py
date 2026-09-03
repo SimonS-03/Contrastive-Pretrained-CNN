@@ -10,7 +10,7 @@ import numpy as np
 import time
 
 class CNN:
-	def __init__(self, layers: list[Conv_Layer | MLP_Layer | Pool_Layer], lam: float = 1e-3, dropout_prob:float=0, device:str="cpu"):
+	def __init__(self, layers: list[Conv_Layer | MLP_Layer | Pool_Layer], lam: float = 1e-3, dropout_prob:float=0, device:str="cpu", adamW_optim: optimizer = None, lr_schedule: lr_schedule = None):
 		"""Creates a linear classifier with 10 output classes.
 		Args:
 			layers (list[Conv_Layer | MLP_Layer | Pool_Layer]): A list of either convolution-layers or mlp-layers, already initialized.
@@ -27,11 +27,13 @@ class CNN:
 		"""The dataloader class for this CNN. """
 		self.device:str = device
 		"""The device that the CNN runs on. """
+		self.adamW_optim = adamW_optim
+		self.lr_schedule = lr_schedule
 
 		self.history = {
 			'epochs': [], 'train_costs': [], 'train_losses': [],
 			'val_costs': [], 'val_losses': [],
-			'train_accuracys': [], 'val_accuracys': []
+			'train_accuracys': [], 'val_accuracys': [], 'learning_rates': []
 		}
 		"""The history of the training run. \\
 			'epochs', 'train_costs', 'train_losses', 'val_costs', 'val_losses',
@@ -413,7 +415,7 @@ class CNN:
 			plt.ioff() # Turn off interactive mode
 			plt.show() # Keep the final plot window open when training finishes
 
-	def contrastiveLearning(self, X_train: torch.Tensor, schedule: lr_schedule, optim: optimizer,
+	def contrastiveLearning(self, X_train: torch.Tensor,
 					 max_num_epochs: int = 40, batch_size: int = 100, 
 					shuffle_set: bool = True, show_plots: bool = True, debug_logs: bool = False):
 		""" Does contrastive self-supervised learning """
@@ -422,7 +424,8 @@ class CNN:
 
 		n_datapoints = X_train.shape[-1]
 		num_minibatches = int(n_datapoints / batch_size)
-
+		optim = self.adamW_optim
+		schedule = self.lr_schedule
 		training_losses = []
 		learning_rates = []
 		if show_plots:
@@ -502,7 +505,7 @@ class CNN:
 						auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.__param_layers]
 						#print(f"Step {update_step} filter grad-mag: {torch.round(auto_grads[0]["W"].norm(), decimals=4)}, mag: {self.layers[0].W.norm().item():.4f}")
 						#print(f"Grad of output layer at step {update_step}: {torch.round(auto_grads[-1]["W"].norm(), decimals=2)}")
-						lr = schedule.get_lr(update_step)
+						lr = schedule.get_lr()
 						learning_rates.append(lr)
 						optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 						self.__back_pass(lr, optim_grads)
@@ -626,11 +629,19 @@ class CNN:
 				"b": layer.b.detach().cpu().clone()
 			}
 			model_state.append(layer_state)
+
+		# Saving optim and lr_schedule states if they exist
+		
+		optim_state = self.adamW_optim.get_state()
+		lr_schedule_state = self.lr_schedule.get_state()
+
 		
 		checkpoint = {
 			"model_state": model_state,
 			"history": self.history,
-			"current_epoch": self.current_epoch
+			"current_epoch": self.current_epoch,
+			"optim_state": optim_state,
+			"lr_schedule_state": lr_schedule_state
 		}
 		torch.save(checkpoint, "Saved_Networks/" + filepath)
 		print(f"Checkpoint successfully saved to {filepath}")
@@ -652,6 +663,14 @@ class CNN:
 			self.history = checkpoint.get("history", self.history)
 			self.total_training_time = checkpoint.get("total_training_time", 0.0)
 			self.current_epoch = checkpoint.get("current_epoch", 0)
+
+			self.adamW_optim = AdamW()
+			self.adamW_optim.set_state(checkpoint.get("optim_state", None))
+
+			self.lr_schedule = cyclic_increasing_lr()
+			self.lr_schedule.set_state(checkpoint.get("lr_schedule_state", None))
+
+			
 
 		if len(model_state) != len(self.__param_layers):
 			raise ValueError("The loaded model has a different number of layers than the current model!")
