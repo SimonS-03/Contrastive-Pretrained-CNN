@@ -6,7 +6,7 @@ class MLP_Layer:
 	Args:
 		input_dim (int): Dimension of input. 
 		output_dim (int): Dimension of output. 
-		activation_function (str): The activation function of the layer. Can be ReLU, softmax.
+		activation_function (str): The activation function of the layer. Can be ReLu, softmax.
 		device (str): Which device to run the layer on. (cpu)"""
 
 
@@ -14,7 +14,7 @@ class MLP_Layer:
 		"""Initialize the MLP layer.  """
 		
 		self.activation_function = activation_function
-		"""The activation function of the layer. Can be ReLU, softmax. """
+		"""The activation function of the layer. Can be ReLu, softmax. """
 		self.device:str = device
 		"""The device that the layer runs on. """
 		self.W = None

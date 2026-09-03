@@ -379,6 +379,69 @@ def test_train_augment_tiny():
 					  Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
 						batch_size=200, max_num_epochs=100, show_plots=True, profile=True, debug_logs=False)
 
+def test_train_contrastive_tiny(load_saved = False):
+	"""Augment tiny images. """
+	torch.manual_seed(42)
+
+	device = "mps"
+
+	dataload = dataloader.Dataloader()
+	data = dataload.load_train_data(print_progress=True, train_lim=10000, val_lim=5)
+	X_train = data['X_train'].to(device)
+	X_train = dataload.normalize(X_train)
+
+	f = 3
+	nf = 128
+	stride = 1
+	padding = 1
+	rgb = 3
+	lam = 0
+	n_classes = data['Y_train'].shape[0]
+	width = X_train.shape[0]
+
+	filename = f"f{f}_nf{nf}_new_standard"
+
+	conv_1 = convolution.Conv_Layer(filter_width=f, channels=rgb, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+	#conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
+
+	conv_2 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+
+	pool_1 = pooling.Pool_Layer(kernel=2, stride=2, padding=0)
+
+	conv_3 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+	
+	conv_4 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+
+	pool_2 = pooling.Pool_Layer(kernel=2, stride=2, padding=0)
+
+	conv_5 = convolution.Conv_Layer(filter_width=f, channels=nf, nf=nf, activation_function="ReLu", stride=stride, padding=padding)
+	
+	pool_3 = pooling.Pool_Layer(kernel=2, stride=2, padding=0)
+
+	#mlp_1 = mlp.MLP_Layer(input_dim=load_data['conv_flat'].shape[0], output_dim=load_data['X1'].shape[1], activation_function="ReLu")
+	mlp_1 = mlp.MLP_Layer(input_dim=(width//2**3)**2*nf, output_dim=400, activation_function="ReLu")
+
+	mlp_2 = mlp.MLP_Layer(input_dim=400, output_dim=400, activation_function="ReLu")
+
+	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="softmax")
+
+	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
+					lam=lam, device=device)
+	
+	cnn_test.dataloader = dataload
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=1e-2, max_lr=1e-1)
+	adamW_optim = utils.AdamW()
+
+	if load_saved: cnn_test.load_checkpoint(filename)
+
+	try: 
+		cnn_test.contrastiveLearning(X_train=X_train, schedule=cyclic_schedule, optim=adamW_optim, \
+					batch_size=100, max_num_epochs=20, show_plots=True, debug_logs=False)
+		cnn_test.show_filters(cnn_test.layers[0].W, freeze=True)
+		cnn_test.save_checkpoint(filename)
+	except KeyboardInterrupt:
+		print("Training interupted, saving model...")
+		cnn_test.save_checkpoint(filename)
 
 def test_Mx():
 	"""Test the new "get Mx". """
@@ -434,7 +497,7 @@ def test_contrastive_small_sample(load_saved: bool = False):
 
 	cnn_test = cnn.CNN([conv1, conv2, mlp_1, mlp_2], lam=2e-4, dropout_prob=.30)
 	cnn_test.dataloader = loader
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=25, min_lr=1e-3, max_lr=2e-1)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=25, min_lr=2, max_lr=2)
 	adamW_optim = utils.AdamW()
 	
 	if load_saved: cnn_test.load_model(filename)
@@ -596,6 +659,7 @@ def time_network():
 
 
 if __name__ == "__main__":
-	time_network()
+	test_train_contrastive_tiny(True)
+	#time_network()
 	#test_train_augment_tiny()
 	#test_overfit_small_sample()
