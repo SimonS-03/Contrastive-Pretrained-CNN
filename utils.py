@@ -46,15 +46,34 @@ class cyclic_lr(lr_schedule):
 
 
 class cyclic_increasing_lr(lr_schedule):
-    def __init__(self, starting_cycle_length: float, min_lr: float, max_lr: float):
+    def __init__(self, starting_cycle_length: float = None, min_lr: float = None, max_lr: float = None):
         self.starting_cycle_length = starting_cycle_length
         self.min_lr = min_lr
         self.max_lr = max_lr
+        self.iteration = 0
 
-    def get_lr(self, iteration):
+    def get_state(self):
+        return {"iteration": self.iteration,
+                "starting_cycle_length": self.starting_cycle_length,
+                "min_lr": self.min_lr,
+                "max_lr": self.max_lr}
+
+    def set_state(self, state):
+        self.iteration = state["iteration"]
+        self.min_lr = state["min_lr"]
+        self.max_lr = state["max_lr"]
+        self.starting_cycle_length = state["starting_cycle_length"]
+
+
+    def get_lr(self, iteration = None):
+        if iteration is None:
+            iteration = self.iteration
+            self.iteration += 1 
+
         period_count = math.floor(math.log2(1+iteration/(2*self.starting_cycle_length)))
         current_period_length = 2*self.starting_cycle_length * 2**(period_count)
         period_start = 2*self.starting_cycle_length * (2**period_count - 1)
+
 
         if iteration < (period_start + current_period_length/2): # Up-cycle
             cycle_start = period_start
@@ -81,7 +100,19 @@ class AdamW(optimizer):
         self.eps = eps
         self.mt: list[dict[str, float]] = None
         self.vt: list[dict[str, float]] = None
-    
+
+    def get_state(self):
+        """Returns the state of the optimizer, which includes the moving averages of the gradients and squared gradients."""
+        return {
+            "mt": self.mt,
+            "vt": self.vt
+        }
+
+    def set_state(self, state: dict):
+        """Loads the state of the optimizer, which includes the moving averages of the gradients and squared gradients."""
+        self.mt = state["mt"]
+        self.vt = state["vt"]
+
     def update_gradient(self, params: list[dict[str, float]], grads: list[dict[str, float]], iteration: int, lam: float) -> list[dict[str, float]]:
         """Returns the gradients according to the AdamW optimizer. 
         
@@ -107,7 +138,7 @@ class AdamW(optimizer):
                 self.vt[layer][param] = self.b2*self.vt[layer][param] + (1-self.b2)*param_grad**2
                 mt_hat = self.mt[layer][param] / (1-self.b1**iteration + self.eps)
                 vt_hat = self.vt[layer][param] / (1-self.b2**iteration + self.eps)
-                new_grads[layer][param] = (mt_hat / (torch.sqrt(vt_hat) + self.eps) + 2*param_grad)
+                new_grads[layer][param] = mt_hat / (torch.sqrt(vt_hat) + self.eps) + 2*lam*params[layer][param]
                 #print(f"Grad-norm in layer {layer} and param {param}: {new_grads[layer][param].norm()}")
 
         return new_grads
