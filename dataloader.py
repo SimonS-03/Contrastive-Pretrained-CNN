@@ -461,7 +461,22 @@ class Dataloader:
         return X_im, Y, y
     
 
-    def load_cifar_data(self):
+    def load_cifar_data(self, n_train:int|None, n_val:int|None, device:str="mps"):
+        """Loads and normalizes the cifar dataset
+        
+        Args:
+            n_train (int | None): Number of training datapoints. None if all the data should be used. 
+            n_val (int): Number of validation datapoints.
+            device (str): The device to put the tensors on. 
+
+        Returns:
+            train_val_data (dict): Dictionary of the training and validation data and labels. 
+                - **'X_train'** (torch.Tensor): The training data. (height, width, rgb, n_train)
+                - **'Y_train'** (torch.Tensor): The one-hot training label matrix. (n_labels, n_train)
+                - **'y_train'** (torch.Tensor): The training labels. (n_train,)
+                - **'X_val'** (torch.Tensor): The validation data. (height, width, rgb, n_val)
+                - **'Y_val'** (torch.Tensor): The one-hot validation label matrix. (n_labels, n_val)
+                - **'y_val'** (torch.Tensor): The validation labels. (n_val,)"""
 
         batch1_X, batch1_Y, batch1_y = self.LoadBatch("data_batch_1")
         batch2_X, batch2_Y, batch2_y = self.LoadBatch("data_batch_2")
@@ -474,16 +489,24 @@ class Dataloader:
         big_X = torch.concat((batch1_X, batch2_X, batch3_X, batch4_X, batch5_X), axis=3)
         big_Y = torch.concat((batch1_Y, batch2_Y, batch3_Y, batch4_Y, batch5_Y), axis=1)
         big_y = torch.concat((batch1_y, batch2_y, batch3_y, batch4_y, batch5_y))
-        data['X_val'] = big_X[:, :, :, -1000:].clone()
-        data['Y_val'] = big_Y[:, -1000:].clone()
-        data['y_val'] = big_y[-1000:].clone().float()
-        data['X_train'] = big_X[:, :, :, :-1000].clone()
-        data['Y_train'] = big_Y[:, :-1000].clone()
-        data['y_train'] = big_y[:-1000].clone().float()
+        data['X_val'] = big_X[:, :, :, -n_val:].clone()
+        data['Y_val'] = big_Y[:, -n_val:].clone()
+        data['y_val'] = big_y[-n_val:].clone().float()
+        data['X_train'] = big_X[:, :, :, :-n_val].clone()
+        data['Y_train'] = big_Y[:, :-n_val].clone()
+        data['y_train'] = big_y[:-n_val].clone().float()
 
-        #data['X_train'] = self.normalize(X=data['X_train'])
+        if n_train != None:
+            data['X_train'] = data['X_train'][:, :, :, :n_train].clone()
+            data['Y_train'] = data['Y_train'][:, :n_train].clone()
+            data['y_train'] = data['y_train'][:n_train].clone()
+
+
+        data['X_train'] = self.normalize(X=data['X_train'])
 
         #Normalize
-        #data['X_val'] = self.normalize(X=data['X_val'], use_train_data=True)
+        data['X_val'] = self.normalize(X=data['X_val'], use_train_data=True)
+
+        self.set_normal_device(device=device)
 
         return data

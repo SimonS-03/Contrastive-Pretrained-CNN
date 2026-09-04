@@ -737,16 +737,10 @@ def big_cifar():
 	device = "mps"
 
 	dataload = dataloader.Dataloader()
-	data = dataload.load_cifar_data()
-
-	X_train = dataload.normalize(data['X_train'][..., :5000])
-	del data['X_train']
-	X_val = dataload.normalize(data['X_val'], use_train_data=True)
-	del data['X_val']
-	dataload.set_normal_device(device=device)
+	data = dataload.load_cifar_data(n_train=None, n_val=1000, device=device)
 
 	batch_size = 200
-	n_train = X_train.shape[-1]
+	n_train = data['X_train'].shape[-1]
 
 	f = 3
 	stride = 1
@@ -754,7 +748,7 @@ def big_cifar():
 	rgb = 3
 	lam = 2.5e-4
 	n_classes = data['Y_train'].shape[0]
-	width = X_train.shape[0]
+	width = data['X_train'].shape[0]
 
 	conv_1 = convolution.Conv_Layer(filter_width=f, channels=rgb, nf=32, activation_function="ReLu", stride=stride, padding=padding)
 	#conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
@@ -789,7 +783,7 @@ def big_cifar():
 	starting_cycle_length = k * iters_per_epoch    # k in [2, 10]
 	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=starting_cycle_length, min_lr=1e-4, max_lr=1e-3)
 	adamW_optim = utils.AdamW()
-	cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'][..., :5000], y_train=data['y_train'][:5000], X_val=X_val, \
+	cnn_test.minibatchGD(X_train=data['X_train'], Y_train=data['Y_train'], y_train=data['y_train'], X_val=data['X_val'], \
 						Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
 						batch_size=batch_size, max_num_epochs=200, show_plots=True, profile=False, debug_logs=False)
 
