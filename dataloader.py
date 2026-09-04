@@ -17,7 +17,7 @@ class Dataloader:
         """For augmenting the data. """
 
 
-    def create_self_augmentation(self, height:int, width:int) -> None:
+    def create_self_augmentation(self, height:int, width:int, min_crop = .14) -> None:
         """Creates **self.augmentations** based on the height and width of the image 
         if it has not already been created. """
 
@@ -25,7 +25,7 @@ class Dataloader:
             return
 
         self.augmentations = trans.Compose([
-            trans.RandomResizedCrop(size=(height, width), scale=(0.14, 1), antialias=True),
+            trans.RandomResizedCrop(size=(height, width), scale=(min_crop, 1), antialias=True),
             trans.ColorJitter(brightness=.4, contrast=.4, saturation=.4, hue=.05),
             trans.RandomGrayscale(p=.2)
         ])
@@ -163,7 +163,7 @@ class Dataloader:
 
 
     def augment_data(self, X:torch.Tensor, flip_prob:float=0.5, rot_prob:float=0.05, noise_prob:float=0.2, \
-                     noise_std:float=0.02, individual_aug:bool=True) -> torch.Tensor:
+                     noise_std:float=0.02, individual_aug:bool=True, min_crop = 0.14) -> torch.Tensor:
         """Augment the data by rotating, flipping and adding noise. Clones the data. 
         
         Args:
@@ -178,7 +178,7 @@ class Dataloader:
         Returns:
             X_aug (torch.Tensor): The augmented data. (height, width, rgb, n)"""
 
-        self.create_self_augmentation(height=X.shape[0], width=X.shape[1])
+        self.create_self_augmentation(height=X.shape[0], width=X.shape[1], min_crop=min_crop)
         
         X_aug = self.unnormalize01(X.clone()) # Unnormalized it, and transforms the range back to 0-1
 
