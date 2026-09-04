@@ -81,7 +81,7 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 	try: 
 		cnn_test.contrastiveLearning(X_train=X_train, X_val=X_val, \
 					batch_size=settings.batch_size, max_num_epochs=contrastive_epochs, epoch_save_step=epoch_save_step, show_plots=True, debug_logs=False, \
-						save_path=checkpoint, dropout_prob=settings.dropout_prob, normalize_at=[7])
+						save_path=checkpoint, dropout_prob=settings.dropout_prob, normalize_at=[])
 		cnn_test.save_checkpoint(f"{checkpoint}_contrastive", include_training_state=False) if checkpoint else None
 	except KeyboardInterrupt:
 		print("Training interupted, saving snapshot...")
@@ -152,6 +152,7 @@ def start_finetuning(settings: Settings = Settings(), checkpoint: str = None, ep
 	if checkpoint: 
 		try:
 			cnn_test.load_checkpoint(checkpoint, load_training_state=False, reinitialize_last=3)
+			print("Successfully loaded checkpoint for finetuning.")
 		except:
 			print(f"Could not find checkpoint with filename {checkpoint}. Starting from scratch.")
 
@@ -250,8 +251,8 @@ def run_full(settings: Settings = Settings(), checkpoint: str = None, contrastiv
 	start_finetuning(settings, checkpoint=checkpoint, epochs=10, epoch_save_step=5, freeze_body_epochs=5)
 
 if __name__ == "__main__":
-	checkpoint= None
-	settings = Settings(training_samples=2000, validation_samples=1000, batch_size=200, show_plots=True, dropout_prob=0)
-	run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=40, epoch_save_step=5)
-	#start_finetuning(settings, checkpoint=checkpoint, epochs=20, epoch_save_step=5, freeze_body_epochs=5)
+	checkpoint= "TT_LONG_epoch_16"
+	settings = Settings(training_samples=10000, validation_samples=1000, batch_size=100, show_plots=True, dropout_prob=0)
+	#run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=60, epoch_save_step=5)
+	start_finetuning(settings, checkpoint=checkpoint, epochs=50, epoch_save_step=5, freeze_body_epochs=10)
 	#run_pure_supervised(settings, checkpoint=checkpoint, supervised_epochs=20, epoch_save_step=5)

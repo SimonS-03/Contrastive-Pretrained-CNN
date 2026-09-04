@@ -779,7 +779,7 @@ class CNN:
 			
 
 		layers_to_load = self.__param_layers if reinitialize_last <= 0 else self.__param_layers[:-reinitialize_last]
-		model_state_to_load = model_state if reinitialize_last <= 0 else model_state[:-reinitialize_last]
+		model_state_to_load = model_state if reinitialize_last <= 0 else model_state[:len(layers_to_load)]
 
 		if len(model_state_to_load) != len(layers_to_load):
 			raise ValueError("The loaded model has a different number of layers than the current model!")
