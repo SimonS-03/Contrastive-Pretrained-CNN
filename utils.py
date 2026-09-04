@@ -140,7 +140,10 @@ class AdamW(optimizer):
                 self.vt[layer][param] = self.b2*self.vt[layer][param] + (1-self.b2)*param_grad**2
                 mt_hat = self.mt[layer][param] / (1-self.b1**iteration + self.eps)
                 vt_hat = self.vt[layer][param] / (1-self.b2**iteration + self.eps)
-                new_grads[layer][param] = mt_hat / (torch.sqrt(vt_hat) + self.eps) + 2*lam*params[layer][param]
+                if param == "W":
+                    new_grads[layer][param] = mt_hat / (torch.sqrt(vt_hat) + self.eps) + 2*lam*params[layer][param]
+                else:
+                    new_grads[layer][param] = mt_hat / (torch.sqrt(vt_hat) + self.eps)
                 #print(f"Grad-norm in layer {layer} and param {param}: {new_grads[layer][param].norm()}")
 
         return new_grads

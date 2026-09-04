@@ -74,7 +74,7 @@ class CNN:
 			torch.cuda.synchronize()
 	
 
-	def forward(self, x: torch.Tensor, dropout_prob:float) -> torch.Tensor:
+	def forward(self, x: torch.Tensor, dropout_prob:float, normalize_at: list[int] = []) -> torch.Tensor:
 		"""Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)
 		
 		Args:
@@ -100,10 +100,15 @@ class CNN:
 
 			if layer == self.layers[-1]:
 				dropout_prob = 0 #No dropout on the last layer
-
+			
 			x = layer.forward(x, dropout_prob)
-			#if torch.any(x.isnan()):
-			#	raise ValueError("One item is NaN. ")
+
+			# Normalization 
+			if normalize_at and i in normalize_at:
+				mean = x.mean(dim=0, keepdim=True)
+				var = x.var(dim=0, keepdim=True, unbiased=False)
+				x = (x - mean) / torch.sqrt(var + 1e-5)
+
 			prev_layer = layer
 			
 		return x
@@ -114,9 +119,9 @@ class CNN:
 		predicted class probabilites"""
 		# both have dimensions (10, batch_size)
 		# We take the mean of the loss over the batch
+		#targets = torch.argmax(Y_batch, dim=0)
 		targets = torch.argmax(Y_batch, dim=0)
 		cross_entropy = torch.nn.functional.cross_entropy(logits.T, targets)
-		
 		reg = 0
 		if self.lam != 0: #Reg is zero if lam is zero
 			for layer in self.__param_layers:
@@ -237,7 +242,8 @@ class CNN:
 	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
 				 y_val:torch.Tensor, schedule: lr_schedule, optim: optimizer, max_num_epochs: int = 40, batch_size: int = 100, 
 					shuffle_set: bool = True, show_plots: bool = True, epoch_plot_period: int = 1, profile:bool=False, 
-					save_path: str = None, epoch_save_step: int = 5, profile_batches:int=30, profile_warmup_batches:int=5, debug_logs:bool=False):
+					save_path: str = None, epoch_save_step: int = 5, profile_batches:int=30, profile_warmup_batches:int=5, debug_logs:bool=False, supervised_head_size: int = 0, freeze_body_epochs: int = 0,
+					normalize_at: list[int] = []):
 		""" Does end-to-end minibatch gradient descent with the given training data. 
 		
 		Args:
@@ -298,6 +304,15 @@ class CNN:
 			#Get the permutation of this epoch
 			permutation = torch.randperm(n_datapoints) if shuffle_set else torch.arange(n_datapoints)
 
+			if supervised_head_size > 0 and i < freeze_body_epochs: # Keeps body frozen for first few epochs
+				for layer in self.__param_layers[:-supervised_head_size]:
+					layer.W.requires_grad = False
+					layer.b.requires_grad = False
+			else:
+				for layer in self.__param_layers:
+					layer.W.requires_grad = True
+					layer.b.requires_grad = True
+				
 			for j in range(num_minibatches):
 				if debug_logs:
 					print(f"minibatch {j}")
@@ -333,8 +348,8 @@ class CNN:
 
 				if show_plots:
 					self.history['train_steps'].append(update_step / num_minibatches)
-					self.history['train_costs'].append(batch_cost.item()/batch_size)
-					self.history['train_losses'].append(batch_loss.item()/batch_size)
+					self.history['train_costs'].append(batch_cost.item())
+					self.history['train_losses'].append(batch_loss.item())
 
 					ax1.clear()
 					ax1.plot(self.history['train_steps'], self.history['train_costs'], label="Training Cost", color="y")
@@ -439,8 +454,8 @@ class CNN:
 					val_cost_cur, val_loss_cur = self.cost_function(P_val, Y_val_batch)
 					val_cost += val_cost_cur; val_loss += val_loss_cur
 
-				self.history['val_costs'].append(val_cost.detach().item()/X_val.shape[-1])
-				self.history['val_losses'].append(val_loss.detach().item()/X_val.shape[-1])
+				self.history['val_costs'].append(val_cost.detach().item()/val_minibatches)
+				self.history['val_losses'].append(val_loss.detach().item()/val_minibatches)
 			
 				if X_val is not None and y_val is not None and y_train is not None:
 					self.history['val_accuracys'].append(self.get_accuracy(X_val, y_val, batch_size).item())
@@ -467,7 +482,7 @@ class CNN:
 
 	def contrastiveLearning(self, X_train: torch.Tensor, X_val: torch.Tensor,
 					 max_num_epochs: int = 40, batch_size: int = 100, epoch_save_step: int = 5,
-					shuffle_set: bool = True, show_plots: bool = True, debug_logs: bool = False, save_path: str = None, dropout_prob: float = 0.0):
+					shuffle_set: bool = True, show_plots: bool = True, debug_logs: bool = False, save_path: str = None, dropout_prob: float = 0.0, normalize_at: list[int] = []):
 		""" Does contrastive self-supervised learning """
 
 		n_datapoints = X_train.shape[-1]
@@ -534,12 +549,14 @@ class CNN:
 						param_set["W"].grad = None
 						param_set["b"].grad = None
 					
-					output_batch1 = self.forward(aug_batch1, dropout_prob=dropout_prob) # (10, batch_size)
-					output_batch2 = self.forward(aug_batch2, dropout_prob=dropout_prob) # (10, batch_size)
+					output_batch1 = self.forward(aug_batch1, dropout_prob=dropout_prob, normalize_at=normalize_at) # (10, batch_size)
+					output_batch2 = self.forward(aug_batch2, dropout_prob=dropout_prob, normalize_at=normalize_at) # (10, batch_size)
+
 					if debug_logs: print(f"Output magnitude at step {update_step}: {torch.round(output_batch1.norm(), decimals=2)}")
 					loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=.1) # Choise of temp is based on report
 					loss.backward()
 					last_filter_norm = self.layers[0].W.norm().item()
+
 					with torch.no_grad():
 						auto_grads = [{"W": layer.W.grad, "b": layer.b.grad} for layer in self.__param_layers]
 
@@ -548,17 +565,13 @@ class CNN:
 						optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 						self.__back_pass(lr, optim_grads)
 						self.show_filters(self.layers[0].W, freeze=False, step=update_step)
-						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]['W'].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\n====================\n")
-						batch_loss = loss.detach().cpu().item()/batch_size
+						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]['W'].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\nOutput magnitude: {output_batch1.norm().item():.6f}\n====================\n")
+						batch_loss = loss.detach().cpu().item()
 						training_losses.append(batch_loss)
 
 						if show_plots:
 							epochs = np.arange(1, len(training_losses) + 1)/num_minibatches
 							raw_loss_line.set_data(epochs, training_losses)
-							window_size = min(50, len(training_losses))
-							#smoothed_losses = np.convolve(training_losses, np.ones(window_size) / window_size, mode='valid')
-							#smoothed_steps = np.arange(window_size, len(training_losses) + 1)/num_minibatches
-							#smoothed_loss_line.set_data(smoothed_steps, smoothed_losses)
 							lr_steps = np.arange(1, len(learning_rates) + 1)/num_minibatches
 							lr_line.set_data(lr_steps, learning_rates)
 							loss_ax.relim()
@@ -569,19 +582,34 @@ class CNN:
 							loss_fig.canvas.flush_events()
 							lr_fig.canvas.draw()
 							lr_fig.canvas.flush_events()
+
 					update_step += 1
 
 				with torch.no_grad(): # Checking validation data
 					self.current_epoch += 1
 					X_val = X_val.to(self.device) # We only do one batch of val
-					val_aug_1 = self.dataloader.augment_data(X_val, flip_prob=.4, rot_prob=0.1, noise_prob=.4)
-					val_aug_2 = self.dataloader.augment_data(X_val, flip_prob=.4, rot_prob=0.1, noise_prob=.4)
 
-					output_batch1 = self.forward(val_aug_1, dropout_prob=.0) 
-					output_batch2 = self.forward(val_aug_2, dropout_prob=.0) 
-					val_loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=.1) # Choise of temp is based on report
-					val_loss_value = val_loss.detach().cpu().item()/X_val.shape[-1]
+					val_losses = []
+					num_val_batches = X_val.shape[-1] // batch_size
+
+					for k in range(num_val_batches):
+						v_start = k * batch_size
+						v_end = (k + 1) * batch_size
+						X_val_batch = X_val[..., v_start:v_end].to(self.device)
+
+						val_aug_1 = self.dataloader.augment_data(X_val_batch, flip_prob=0.4, rot_prob=0.1, noise_prob=0.4)
+						val_aug_2 = self.dataloader.augment_data(X_val_batch, flip_prob=0.4, rot_prob=0.1, noise_prob=0.4)
+
+						output_batch1 = self.forward(val_aug_1, dropout_prob=0.0, normalize_at=normalize_at)
+						output_batch2 = self.forward(val_aug_2, dropout_prob=0.0, normalize_at=normalize_at)
+
+						v_loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=0.1)
+						val_losses.append(v_loss.detach().cpu().item())
+
+					# Mean over all equal-sized validation minibatches
+					val_loss_value = float(np.mean(val_losses)) if val_losses else 0.0
 					self.history['val_losses'].append(val_loss_value)
+
 					print(f"\n======= Validation ======= \nLoss: {val_loss_value:.6f}\n====================\n")
 					if show_plots:
 						validation_steps = np.arange(1, len(validation_losses) + 1)
@@ -619,8 +647,9 @@ class CNN:
 		exp_sim = torch.exp(sim_matrix)
 		exp_sim_no_self = exp_sim * (1-torch.eye(2*batch_N).to(self.device)) # Remove self-similarities
 		
-		positive_sims = torch.diag(exp_sim_no_self, diagonal=batch_N)
-		nominator = torch.cat([positive_sims, positive_sims])
+		pos_1_to_2 = torch.diag(exp_sim_no_self, diagonal=batch_N)
+		pos_2_to_1 = torch.diag(exp_sim_no_self, diagonal=-batch_N)
+		nominator = torch.cat([pos_1_to_2, pos_2_to_1])
 		denominator = torch.sum(exp_sim_no_self, dim=1)
 
 		return torch.mean(-torch.log(nominator/denominator) + 1e-8)
@@ -711,7 +740,7 @@ class CNN:
 		print(f"Checkpoint successfully saved to {filepath}")
 
 
-	def load_checkpoint(self, filepath: str, load_training_state: bool = True, load_last_layer: bool = True):
+	def load_checkpoint(self, filepath: str, load_training_state: bool = True, reinitialize_last: int = 0):
 		"""Loads a checkpoint.
 
 		If load_training_state is false, only the model weights are restored.
@@ -749,8 +778,8 @@ class CNN:
 
 			
 
-		layers_to_load = self.__param_layers if load_last_layer else self.__param_layers[:-1]
-		model_state_to_load = model_state if load_last_layer else model_state[:-1]
+		layers_to_load = self.__param_layers if reinitialize_last <= 0 else self.__param_layers[:-reinitialize_last]
+		model_state_to_load = model_state if reinitialize_last <= 0 else model_state[:-reinitialize_last]
 
 		if len(model_state_to_load) != len(layers_to_load):
 			raise ValueError("The loaded model has a different number of layers than the current model!")
