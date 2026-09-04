@@ -525,12 +525,14 @@ class CNN:
 			plt.ion()
 			loss_fig, loss_ax = plt.subplots(figsize=(8, 4))
 			raw_loss_line, = loss_ax.plot([], [], linestyle='--', color='r', label='training batch loss')
-			raw_cost_line = loss_ax.plot([], [], linestyle='--', color='y', label='training batch cost')
+			raw_cost_line, = loss_ax.plot([], [], linestyle='--', color='y', label='training batch cost')
 			#smoothed_loss_line, = loss_ax.plot([], [], linestyle='-', color='green', label='avg last 50')
 			validation_loss_line, = loss_ax.plot([], [], linestyle='-', marker='o', color='purple', label='validation epoch loss')
+			validation_cost_line, = loss_ax.plot([], [], linestyle='-', marker='o', color='green', label='validation epoch cost')
 			loss_ax.set_xlabel('Epoch')
 			loss_ax.set_ylabel('NT-Xent loss')
 			loss_ax.set_title('Contrastive Training loss')
+			#loss_ax.set_ylim(top=8)
 			loss_ax.legend()
 			lr_fig, lr_ax = plt.subplots(figsize=(8, 4))
 			lr_line, = lr_ax.plot([], [], linestyle='-', color='blue', label='learning rate')
@@ -593,7 +595,7 @@ class CNN:
 						learning_rates.append(lr)
 						optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 						self.__back_pass(lr, optim_grads)
-						self.show_filters(self.layers[0].W, freeze=False, step=len(training_losses)/num_minibatches)
+						self.show_filters(self.layers[0].W, freeze=False, epoch=len(training_losses)/num_minibatches)
 						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]['W'].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\nOutput magnitude: {output_batch1.norm().item():.6f}\n====================\n")
 						batch_loss = loss.detach().cpu().item()
 						batch_cost = cost.detach().cpu().item()
@@ -602,12 +604,15 @@ class CNN:
 
 						if show_plots:
 							epochs = np.arange(1, len(training_losses) + 1)/num_minibatches
-							raw_loss_line.set_data(epochs, training_losses)
-							raw_cost_line.set_data(epochs, training_costs)
+							raw_loss_line.set_data(epochs, self.__average_loss(training_losses, num_minibatches))
+							raw_cost_line.set_data(epochs, self.__average_loss(training_costs, num_minibatches))
 							lr_steps = np.arange(1, len(learning_rates) + 1)/num_minibatches
 							lr_line.set_data(lr_steps, learning_rates)
+							loss_ax.set_autoscaley_on(True)   # re-enable y-autoscale for this frame
 							loss_ax.relim()
 							loss_ax.autoscale_view()
+							bottom, top = loss_ax.get_ylim()
+							#loss_ax.set_ylim(max(0, bottom), min(top, 8))   # clamp top only, keep the real autoscaled floor
 							lr_ax.relim()
 							lr_ax.autoscale_view()
 							loss_fig.canvas.draw()
@@ -642,12 +647,15 @@ class CNN:
 
 					# Mean over all equal-sized validation minibatches
 					val_loss_value = float(np.mean(val_losses)) if val_losses else 0.0
+					val_cost_value = float(np.mean(val_costs)) if val_costs else 0.0
 					self.history['val_losses'].append(val_loss_value)
+					self.history['val_costs'].append(val_cost_value)
 
 					print(f"\n======= Validation ======= \nLoss: {val_loss_value:.6f}\n====================\n")
 					if show_plots:
 						validation_steps = np.arange(1, len(validation_losses) + 1)
 						validation_loss_line.set_data(validation_steps, validation_losses)
+						validation_cost_line.set_data(validation_steps, validation_costs)
 						loss_ax.relim()
 						loss_ax.autoscale_view()
 						loss_fig.canvas.draw()

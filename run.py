@@ -19,20 +19,15 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 
 	device = "mps"
 	dataload = dataloader.Dataloader()
-	data = dataload.load_cifar_data()
-	X_train = dataload.normalize(data['X_train'][..., :settings.training_samples])
-	del data['X_train']
-	X_val = dataload.normalize(data['X_val'][..., :settings.validation_samples], use_train_data=True)
-	del data['X_val']
-	dataload.set_normal_device(device=device)
-
-	
+	data = dataload.load_cifar_data(n_train=settings.training_samples, n_val=settings.validation_samples)
+	X_train = data['X_train']
+	X_val = data['X_val']
 
 	f = 3
 	stride = 1
 	padding = 1
 	rgb = 3
-	lam = 1e-2
+	lam = 2.5e-4
 	n_classes = data['Y_train'].shape[0]
 	width = X_train.shape[0]
 
@@ -40,21 +35,21 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 
 	conv_2 = convolution.Conv_Layer(filter_width=f, channels=32, nf=32, activation_function="ReLu", stride=stride, padding=padding)
 
-	pool_1 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0)
+	pool_1 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0.3)
 
 	conv_3 = convolution.Conv_Layer(filter_width=f, channels=32, nf=64, activation_function="ReLu", stride=stride, padding=padding)
 	
 	conv_4 = convolution.Conv_Layer(filter_width=f, channels=64, nf=64, activation_function="ReLu", stride=stride, padding=padding)
 
-	pool_2 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0)
+	pool_2 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0.5)
 
 	conv_5 = convolution.Conv_Layer(filter_width=f, channels=64, nf=128, activation_function="ReLu", stride=stride, padding=padding)
 
 	conv_6 = convolution.Conv_Layer(filter_width=f, channels=128, nf=128, activation_function="ReLu", stride=stride, padding=padding)
 	
-	pool_3 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0)
+	pool_3 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0.5)
 
-	mlp_1 = mlp.MLP_Layer(input_dim=(width//2**3)**2*128, output_dim=128, activation_function="ReLu", dropout_prob=0)
+	mlp_1 = mlp.MLP_Layer(input_dim=(width//2**3)**2*128, output_dim=128, activation_function="ReLu", dropout_prob=0.5)
 
 	mlp_2 = mlp.MLP_Layer(input_dim=128, output_dim=n_classes, activation_function="linear")
 
@@ -62,7 +57,7 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 	k = 2
 	iters_per_epoch = n_train / settings.batch_size
 	starting_cycle_length = k * iters_per_epoch    # k in [2, 10]
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=starting_cycle_length, min_lr=5e-3, max_lr=5e-2)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=starting_cycle_length, min_lr=1e-4, max_lr=1e-3)
 	adamW_optim = utils.AdamW()
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, conv_6, pool_3, mlp_1, mlp_2], \
@@ -255,9 +250,9 @@ def run_full(settings: Settings = Settings(), checkpoint: str = None, contrastiv
 
 if __name__ == "__main__":
 	# In the CIFAR set, there are 60000 training samples and 1000 validation samples.
-	settings = Settings(training_samples=49000, validation_samples=1000, batch_size=100, show_plots=True, dropout_prob=0)
+	settings = Settings(training_samples=None, validation_samples=1000, batch_size=100, show_plots=True, dropout_prob=0)
 
-	checkpoint= "CIFAR_FIRST_contrastive_interupted"
-	#run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=60, epoch_save_step=5)
-	start_finetuning(settings, checkpoint=checkpoint, epochs=50, epoch_save_step=2, freeze_body_epochs=0)
+	checkpoint= "lr=3,4"
+	run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=100, epoch_save_step=5)
+	#start_finetuning(settings, checkpoint=checkpoint, epochs=50, epoch_save_step=2, freeze_body_epochs=0)
 	#run_pure_supervised(settings, checkpoint=checkpoint, supervised_epochs=20, epoch_save_step=5)
