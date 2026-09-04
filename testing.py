@@ -737,7 +737,7 @@ def big_cifar():
 	device = "mps"
 
 	dataload = dataloader.Dataloader()
-	data = dataload.load_cifar_data(n_train=None, n_val=1000, device=device)
+	data = dataload.load_cifar_data(n_train=5000, n_val=1000, device=device)
 
 	batch_size = 200
 	n_train = data['X_train'].shape[-1]

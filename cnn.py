@@ -229,22 +229,35 @@ class CNN:
 		return [l for l in self.layers if not isinstance(l, Pool_Layer)]
 
 
-	def __average_loss(self, list_to_average:list, lookback_steps:int):
+	def __average_loss(self, list_to_average:list, surrounding_items:int):
 		"""Return the average of the list given how many steps back to average. 
 		
 		list_to_average (list): The list to average over. 
-		lookback_steps (int): The number of items to look back on to average. """
+		surrounding_items (int): The number of items around to average. Should be an even number. """
+
+		if surrounding_items % 2 != 0:
+			raise ValueError("surrounding_items in __average loss needs to be even. ")
 
 		average_list = []
 
-		for i in range(len(list_to_average)):
+		lookback_steps = surrounding_items // 2
+		lookahead_steps = surrounding_items // 2
 
+		list_len = len(list_to_average)
+
+		for i in range(list_len):
 			cur_sum = 0
-			cur_lookback = min(i, lookback_steps)+1 #How many items to include in the list
-			for j in range(cur_lookback):
-				cur_sum += list_to_average[i-j]
 
-			average_list.append(cur_sum / cur_lookback)
+			cur_lookback = min(i, lookback_steps)          # how many steps back (not counting i)
+			for j in range(cur_lookback + 1):               # includes i itself once (j=0)
+				cur_sum += list_to_average[i - j]
+
+			cur_lookahead = min(list_len - 1 - i, lookahead_steps)  # how many steps forward
+			for k in range(1, cur_lookahead + 1):            # starts at 1, so i is NOT re-added
+				cur_sum += list_to_average[i + k]
+
+			count = cur_lookback + 1 + cur_lookahead
+			average_list.append(cur_sum / count)
 
 		return average_list
 
