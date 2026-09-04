@@ -325,7 +325,7 @@ class CNN:
 					self.sync(); t = time.perf_counter(); timings["data_slice"] += t - t_start; t_start = t
 
 				with torch.no_grad():
-					X_aug = self.dataloader.augment_data(X=X_batch, individual_aug=False, min_crop=.65)
+					X_aug = self.dataloader.augment_data(X=X_batch, individual_aug=False, min_crop=.65, jitter_scale=.2, grayscale=.1, flip_prob=.25, noise_prob=.15)
 
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["augment"] += t - t_start; t_start = t
@@ -342,9 +342,9 @@ class CNN:
 					self.history['train_losses'].append(batch_loss.item())
 
 					ax1.clear()
-					ax1.plot(self.history['train_steps'], self.history['train_costs'], label="Training Cost", color="y")
+					#ax1.plot(self.history['train_steps'], self.history['train_costs'], label="Training Cost", color="y")
 					ax1.plot(self.history['train_steps'], self.history['train_losses'], label="Training Loss", linestyle='--', color="r")
-					ax1.plot(self.history['val_steps'], self.history['val_costs'], label="Validation Cost", color="b")
+					#ax1.plot(self.history['val_steps'], self.history['val_costs'], label="Validation Cost", color="b")
 					ax1.plot(self.history['val_steps'], self.history['val_losses'], label="Validation Loss", linestyle='--', color="c")
 					ax1.set_xlabel("Epoch")
 					ax1.legend()

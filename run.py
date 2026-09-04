@@ -108,7 +108,7 @@ def start_finetuning(settings: Settings = Settings(), checkpoint: str = None, ep
 	stride = 1
 	padding = 1
 	rgb = 3
-	lam = 2.5e-4
+	lam = 1e-4
 	n_classes = data['Y_train'].shape[0]
 	width = X_train.shape[0]
 
@@ -132,7 +132,7 @@ def start_finetuning(settings: Settings = Settings(), checkpoint: str = None, ep
 	pool_3 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0)
 
 	# Finetuning head =====================================
-	mlp_1 = mlp.MLP_Layer(input_dim=(width//2**3)**2*128, output_dim=128, activation_function="ReLu", dropout_prob=0.5)
+	mlp_1 = mlp.MLP_Layer(input_dim=(width//2**3)**2*128, output_dim=128, activation_function="ReLu", dropout_prob=0)
 	
 	mlp_2 = mlp.MLP_Layer(input_dim=128, output_dim=n_classes, activation_function="linear")
 
@@ -161,7 +161,7 @@ def start_finetuning(settings: Settings = Settings(), checkpoint: str = None, ep
 		cnn_test.minibatchGD(X_train=X_train, Y_train=Y_train, y_train=y_train, X_val=X_val, \
 					Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
 					batch_size=settings.batch_size, max_num_epochs=epochs, show_plots=True, profile=True, debug_logs=False, save_path=checkpoint, epoch_save_step=epoch_save_step, \
-						supervised_head_size=2, freeze_body_epochs=freeze_body_epochs, normalize_at=[8])
+						supervised_head_size=2, freeze_body_epochs=freeze_body_epochs, normalize_at=[])
 
 		if checkpoint: cnn_test.save_checkpoint(f"{checkpoint}_supervised")
 	except KeyboardInterrupt:
