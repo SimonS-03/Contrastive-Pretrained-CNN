@@ -26,6 +26,8 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 	del data['X_val']
 	dataload.set_normal_device(device=device)
 
+	n_train = X_train.shape[-1]
+
 	f = 3
 	nf = 128
 	stride = 1
@@ -57,7 +59,10 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 
 	#mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="linear")
 
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-4, max_lr=5e-2)
+	k = 2
+	iters_per_epoch = n_train / settings.batch_size
+	starting_cycle_length = k * iters_per_epoch    # k in [2, 10]
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=starting_cycle_length, min_lr=5e-3, max_lr=5e-2)
 	adamW_optim = utils.AdamW()
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2], \
@@ -96,6 +101,8 @@ def start_finetuning(settings: Settings = Settings(), checkpoint: str = None, ep
 	del data['X_val']
 	dataload.set_normal_device(device=device)
 
+	n_train = X_train.shape[-1]
+
 	f = 3
 	nf = 128
 	stride = 1
@@ -131,7 +138,10 @@ def start_finetuning(settings: Settings = Settings(), checkpoint: str = None, ep
 	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="linear")
 
 
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=100, min_lr=1e-4, max_lr=1e-3)
+	k = 2
+	iters_per_epoch = n_train / settings.batch_size
+	starting_cycle_length = k * iters_per_epoch    # k in [2, 10]
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=starting_cycle_length, min_lr=1e-4, max_lr=1e-3)
 	adamW_optim = utils.AdamW()
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
@@ -171,6 +181,8 @@ def run_pure_supervised(settings: Settings = Settings(), checkpoint: str = None,
 	del data['X_val']
 	dataload.set_normal_device(device=device)
 
+	n_train = X_train.shape[-1]
+
 	f = 3
 	nf = 128
 	stride = 1
@@ -202,7 +214,10 @@ def run_pure_supervised(settings: Settings = Settings(), checkpoint: str = None,
 
 	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="linear")
 
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=100, min_lr=1e-4, max_lr=1e-3)
+	k = 2
+	iters_per_epoch = n_train / settings.batch_size
+	starting_cycle_length = k * iters_per_epoch    # k in [2, 10]
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=starting_cycle_length, min_lr=1e-4, max_lr=1e-3)
 	adamW_optim = utils.AdamW()
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \

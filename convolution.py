@@ -9,17 +9,25 @@ class Conv_Layer:
 		activation_function (str): must be from {"ReLu"}
 		stride (int): Stride of the filter. 
 		padding (int): Padding of the image. 
-		devide (str): Which device to run the layer on. (cpu)"""
+		normalization (bool): If we should use batch normalization. 
+		device (str): Which device to run the layer on. (cpu)"""
 	
-	def __init__(self, filter_width: int, channels:int, nf: int, activation_function: str, stride:int, padding:int, device:str="cpu"):
+	def __init__(self, filter_width: int, channels:int, nf: int, activation_function: str, stride:int, padding:int, 
+			  normalization:bool=True, device:str="mps"):
 
 		self.h:torch.Tensor = None
 		"""Activation of conv. layer. (n_p*nf, batch_size)"""
 
+		self.norm:torch.nn.BatchNorm2d|None = None
+		"""Batch normalization. None if we don't use it. """
+
+		if normalization:
+			self.norm = torch.nn.BatchNorm2d(num_features=nf).to(device=device)
+
 		self.device:str = device
 		"""The device that the layer runs on. """
 
-		self.nn_layer = torch.nn.Conv2d(in_channels=channels, out_channels=nf, kernel_size=filter_width, stride=stride, padding=padding).to(device=device)
+		self.nn_layer:torch.nn.Conv2d = torch.nn.Conv2d(in_channels=channels, out_channels=nf, kernel_size=filter_width, stride=stride, padding=padding).to(device=device)
 		"""The built-in convolution layer. """
 
 		self.__initialize_layer()
@@ -54,6 +62,9 @@ class Conv_Layer:
 		
 		#Do the convolution
 		pre_act:torch.Tensor = self.nn_layer(X)
+
+		if self.norm != None:
+			pre_act = self.norm(pre_act)
 
 		act = None
 		if self.activation_function == "ReLu": 
