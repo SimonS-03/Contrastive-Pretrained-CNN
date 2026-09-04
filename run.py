@@ -53,14 +53,14 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 
 	mlp_1 = mlp.MLP_Layer(input_dim=(width//2**3)**2*nf, output_dim=400, activation_function="ReLu")
 
-	mlp_2 = mlp.MLP_Layer(input_dim=400, output_dim=400, activation_function="ReLu")
+	mlp_2 = mlp.MLP_Layer(input_dim=400, output_dim=400, activation_function="linear")
 
-	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="linear")
+	#mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="linear")
 
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-3, max_lr=5e-2)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=5, min_lr=5e-4, max_lr=5e-2)
 	adamW_optim = utils.AdamW()
 
-	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
+	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2], \
 					lam=lam, device=device, lr_schedule=cyclic_schedule, adamW_optim=adamW_optim)
 	
 	cnn_test.dataloader = dataload
@@ -235,8 +235,8 @@ def run_full(settings: Settings = Settings(), checkpoint: str = None, contrastiv
 	start_finetuning(settings, checkpoint=checkpoint, epochs=10, epoch_save_step=5, freeze_body_epochs=5)
 
 if __name__ == "__main__":
-	checkpoint= "lunch_break"
+	checkpoint= None
 	settings = Settings(training_samples=2000, validation_samples=1000, batch_size=200, show_plots=True, dropout_prob=0)
-	#run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=40, epoch_save_step=5)
+	run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=40, epoch_save_step=5)
 	#start_finetuning(settings, checkpoint=checkpoint, epochs=20, epoch_save_step=5, freeze_body_epochs=5)
-	run_pure_supervised(settings, checkpoint=checkpoint, supervised_epochs=20, epoch_save_step=5)
+	#run_pure_supervised(settings, checkpoint=checkpoint, supervised_epochs=20, epoch_save_step=5)

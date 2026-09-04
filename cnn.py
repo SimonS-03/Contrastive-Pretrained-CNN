@@ -540,8 +540,8 @@ class CNN:
 					
 					X_batch = X_train_shuffled[..., batch_start:batch_end].to(self.device)
 					with torch.no_grad():
-						aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.4, rot_prob=0.1, noise_prob=.4)
-						aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.4, rot_prob=0.1, noise_prob=.4)
+						aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.4, rot_prob=0.1, noise_prob=.4, individual_aug=True)
+						aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.4, rot_prob=0.1, noise_prob=.4, individual_aug=True)
 	
 					params = [{"W": layer.W, "b": layer.b} for layer in self.__param_layers]
 					if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]['W'].norm()}")

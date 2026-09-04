@@ -25,9 +25,9 @@ class Dataloader:
             return
 
         self.augmentations = trans.Compose([
-            trans.RandomResizedCrop(size=(height, width), scale=(.65, 1), antialias=True),
-            trans.ColorJitter(brightness=.3, contrast=.3, saturation=.3, hue=.05),
-            trans.RandomGrayscale(p=.1)
+            trans.RandomResizedCrop(size=(height, width), scale=(0.14, 1), antialias=True),
+            trans.ColorJitter(brightness=.4, contrast=.4, saturation=.4, hue=.05),
+            trans.RandomGrayscale(p=.2)
         ])
 
 
@@ -191,13 +191,16 @@ class Dataloader:
         else:
             X_aug_perm = self.augmentations(X_aug_perm)
         #print(X_aug_perm.shape)
-        X_aug = X_aug_perm.permute(2, 3, 1, 0).contiguous()
+        
 
 
         # Own augmentation implementations
         self.add_noise01(X=X_aug, noise_prob=noise_prob, noise_std=noise_std)
+        X_aug = X_aug_perm.permute(2, 3, 1, 0).contiguous()
+
+
         self.mirror_data(X=X_aug, mirror_prob=flip_prob)
-        self.rotate_data(X=X_aug, rot_prob=rot_prob)
+        #self.rotate_data(X=X_aug, rot_prob=rot_prob)
 
         X_aug = self.normalize(X_aug*255, use_train_data=True)
         return X_aug
