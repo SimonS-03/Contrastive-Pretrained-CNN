@@ -331,7 +331,9 @@ def test_train_augment_tiny():
 	device = "mps"
 
 	dataload = dataloader.Dataloader()
-	data = dataload.load_train_data(print_progress=True, train_lim=10000, val_lim=2000)
+	#data = dataload.load_train_data(print_progress=True, train_lim=10000, val_lim=2000)
+	data = dataload.load_cifar_data()
+
 	X_train = dataload.normalize(data['X_train'])
 	del data['X_train']
 	X_val = dataload.normalize(data['X_val'], use_train_data=True)
@@ -372,7 +374,7 @@ def test_train_augment_tiny():
 
 	mlp_2 = mlp.MLP_Layer(input_dim=400, output_dim=400, activation_function="ReLu")
 
-	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="linear")
+	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="softmax")
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
 					lam=lam, device=device, dropout_prob=0.5)
@@ -382,11 +384,11 @@ def test_train_augment_tiny():
 	k = 2
 	iters_per_epoch = n_train / batch_size
 	starting_cycle_length = k * iters_per_epoch    # k in [2, 10]
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=starting_cycle_length, min_lr=1e-4, max_lr=1e-2)
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=starting_cycle_length, min_lr=1e-4, max_lr=1e-3)
 	adamW_optim = utils.AdamW()
 	cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_val, \
 					  Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
-						batch_size=batch_size, max_num_epochs=100, show_plots=True, profile=True, debug_logs=False)
+						batch_size=batch_size, max_num_epochs=200, show_plots=True, profile=True, debug_logs=False)
 
 def test_train_contrastive_tiny(checkpoint: str = None):
 	"""Augment tiny images. Checkpoint should be filepath to load/save """

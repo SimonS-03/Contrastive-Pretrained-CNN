@@ -433,7 +433,7 @@ class Dataloader:
         self.X_std = self.X_std.to(device)
 
 
-    def LoadBatch(self, filename:str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def LoadBatch(self, filename:str) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Gets the data and labels given the file name. """
 
         cifar_dir = 'Datasets/cifar-10-batches-py/'
@@ -481,9 +481,9 @@ class Dataloader:
         data['Y_train'] = big_Y[:, :-1000].clone()
         data['y_train'] = big_y[:-1000].clone().float()
 
-        data['X_train'] = self.normalize(X=data['X_train'])
+        #data['X_train'] = self.normalize(X=data['X_train'])
 
         #Normalize
-        data['X_val'] = self.normalize(X=data['X_val'], use_train_data=True)
+        #data['X_val'] = self.normalize(X=data['X_val'], use_train_data=True)
 
         return data

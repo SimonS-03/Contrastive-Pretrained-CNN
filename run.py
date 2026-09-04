@@ -94,6 +94,8 @@ def run_supervised(settings: Settings = Settings(), checkpoint: str = None, supe
 	del data['X_val']
 	dataload.set_normal_device(device=device)
 
+	n_train = X_train.shape[-1]
+
 	f = 3
 	nf = 128
 	stride = 1
@@ -125,7 +127,10 @@ def run_supervised(settings: Settings = Settings(), checkpoint: str = None, supe
 
 	mlp_3 = mlp.MLP_Layer(input_dim=400, output_dim=n_classes, activation_function="linear")
 
-	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=100, min_lr=1e-4, max_lr=1e-3)
+	k = 2
+	iters_per_epoch = n_train / settings.batch_size
+	starting_cycle_length = k * iters_per_epoch    # k in [2, 10]
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=starting_cycle_length, min_lr=1e-4, max_lr=1e-3)
 	adamW_optim = utils.AdamW()
 
 	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, pool_3, mlp_1, mlp_2, mlp_3], \
@@ -145,13 +150,13 @@ def run_supervised(settings: Settings = Settings(), checkpoint: str = None, supe
 
 
 	try: 
-		for layer in cnn_test.layers[:-1]:
-				if hasattr(layer, 'W') and layer.W is not None:
-					layer.W.requires_grad = False
-					layer.b.requires_grad = False
+		#for layer in cnn_test.layers[:-1]:
+		#		if hasattr(layer, 'W') and layer.W is not None:
+		#			layer.W.requires_grad = False
+		#			layer.b.requires_grad = False
 		cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_val, \
 					Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
-					batch_size=settings.batch_size, max_num_epochs=supervised_epochs, show_plots=True, profile=True, debug_logs=True, save_path=checkpoint, epoch_save_step=epoch_save_step)
+					batch_size=settings.batch_size, max_num_epochs=supervised_epochs, show_plots=True, profile=True, debug_logs=False, save_path=checkpoint, epoch_save_step=epoch_save_step)
 		if checkpoint: cnn_test.save_checkpoint(f"{checkpoint}_supervised")
 	except KeyboardInterrupt:
 		print("Training interupted, saving snapshot...")
@@ -165,8 +170,8 @@ def run_full(settings: Settings = Settings(), checkpoint: str = None, contrastiv
 	run_supervised(settings, checkpoint=checkpoint, supervised_epochs=supervised_epochs, epoch_save_step=5)
 
 if __name__ == "__main__":
-	checkpoint= None
-	settings = Settings(training_samples=1000, validation_samples=200, batch_size=200, show_plots=True, dropout_prob=0)
-	run_contrastive(settings, checkpoint=None, contrastive_epochs=20, epoch_save_step=10)
-	#run_supervised(settings, checkpoint=None, supervised_epochs=20, epoch_save_step=5)
+	checkpoint= "complete_run"
+	settings = Settings(training_samples=None, validation_samples=None, batch_size=200, show_plots=True, dropout_prob=0)
+	#run_contrastive(settings, checkpoint=None, contrastive_epochs=20, epoch_save_step=10)
+	run_supervised(settings, checkpoint=checkpoint, supervised_epochs=20000, epoch_save_step=50)
 	#run_full(settings, checkpoint="oldbomba2222")
