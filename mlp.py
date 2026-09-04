@@ -7,14 +7,17 @@ class MLP_Layer:
 		input_dim (int): Dimension of input. 
 		output_dim (int): Dimension of output. 
 		activation_function (str): The activation function of the layer. Can be ReLu, softmax.
+		dropout_prob (float): Probability of a node being turned off for each update step.
 		device (str): Which device to run the layer on. (cpu)"""
 
 
-	def __init__(self, input_dim:int, output_dim:int, activation_function:str, device:str="cpu"):
+	def __init__(self, input_dim:int, output_dim:int, activation_function:str, dropout_prob:float=0, device:str="cpu"):
 		"""Initialize the MLP layer.  """
 		
 		self.activation_function = activation_function
 		"""The activation function of the layer. Can be ReLu, softmax. """
+		self.dropout_prob = dropout_prob
+		"""Probability of a node being turned off for each update step. """
 		self.device:str = device
 		"""The device that the layer runs on. """
 		self.W = None
@@ -41,13 +44,13 @@ class MLP_Layer:
 		self.b = torch.zeros((output_dim, 1), device=self.device, requires_grad=True)
 
 
-	def forward(self, X:torch.Tensor, dropout_prob: float=0, check_nan: bool=False) -> torch.Tensor:
+	def forward(self, X:torch.Tensor, check_nan: bool=False, apply_dropout:bool=True) -> torch.Tensor:
 		"""Returns p and intermediary activation values. 
 		
 		Args:
 			X (torch.Tensor): The input data. (input_dim, n). 
-			dropout_prob (float): Probability of an output node being turned off for the forward pass.
 			check_nan (bool): If we should check for NaN in the activation nodes. It is time inefficient. 
+			apply_dropout (bool): If dropout shall be applied. 
 					
 		Returns:
 			output (torch.Tensor): The output of the perceptron layer. (output_dim, n)"""
@@ -85,7 +88,7 @@ class MLP_Layer:
 		#		print("Activation will be zero due to safety break in dropout loop!")
 		#		break
 		
-		self.h = torch.nn.functional.dropout(act, p=dropout_prob, training=True)
+		self.h = torch.nn.functional.dropout(act, p=self.dropout_prob, training=apply_dropout)
 
 		if check_nan and torch.any(self.h.isnan()):
 			raise ValueError("Some values are NaN after normal MLP. ")

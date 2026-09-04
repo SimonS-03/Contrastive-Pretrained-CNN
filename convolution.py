@@ -22,7 +22,7 @@ class Conv_Layer:
 		"""Batch normalization. None if we don't use it. """
 
 		if normalization:
-			self.norm = torch.nn.BatchNorm2d(num_features=nf).to(device=device)
+			self.norm = torch.nn.BatchNorm2d(num_features=nf, affine=False).to(device=device)
 
 		self.device:str = device
 		"""The device that the layer runs on. """
@@ -49,12 +49,12 @@ class Conv_Layer:
 		torch.nn.init.zeros_(self.nn_layer.bias)
 
 
-	def forward(self, X:torch.Tensor, dropout_prob:float) -> torch.Tensor:
+	def forward(self, X:torch.Tensor, apply_dropout:bool=True) -> torch.Tensor:
 		"""Does the forward pass.
 				
 		Args:
 			X (torch.Tensor): The input matrix. (number of images, number of filters, height, weight)
-			dropout_prob (float): Probability of an output node being turned off for the forward pass.
+			apply_dropout (bool): Not used here, but needed for consistency between functions. 
 		
 		Returns:
 			h (torch.Tensor): The output from the layer. ([height-filter_width+2\*padding]/stride+1, [width-filter_width+2\*padding]/stride+1, number of filters, number of images)"""

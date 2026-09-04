@@ -730,8 +730,73 @@ def run_lr_range_test(device: str = "mps", train_lim: int = 8000, val_lim: int =
 	}
 
 
+def big_cifar():
+	"""Test supervised learning of a big model with CIFAR-10. """
+	torch.manual_seed(42)
+
+	device = "mps"
+
+	dataload = dataloader.Dataloader()
+	data = dataload.load_cifar_data()
+
+	X_train = dataload.normalize(data['X_train'][..., :5000])
+	del data['X_train']
+	X_val = dataload.normalize(data['X_val'], use_train_data=True)
+	del data['X_val']
+	dataload.set_normal_device(device=device)
+
+	batch_size = 200
+	n_train = X_train.shape[-1]
+
+	f = 3
+	stride = 1
+	padding = 1
+	rgb = 3
+	lam = 2.5e-4
+	n_classes = data['Y_train'].shape[0]
+	width = X_train.shape[0]
+
+	conv_1 = convolution.Conv_Layer(filter_width=f, channels=rgb, nf=32, activation_function="ReLu", stride=stride, padding=padding)
+	#conv.F = Fs.reshape((f*f*3, nf), order='C') # (f^2*rgb, nf)
+
+	conv_2 = convolution.Conv_Layer(filter_width=f, channels=32, nf=32, activation_function="ReLu", stride=stride, padding=padding)
+
+	pool_1 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0.3)
+
+	conv_3 = convolution.Conv_Layer(filter_width=f, channels=32, nf=64, activation_function="ReLu", stride=stride, padding=padding)
+	
+	conv_4 = convolution.Conv_Layer(filter_width=f, channels=64, nf=64, activation_function="ReLu", stride=stride, padding=padding)
+
+	pool_2 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0.5)
+
+	conv_5 = convolution.Conv_Layer(filter_width=f, channels=64, nf=128, activation_function="ReLu", stride=stride, padding=padding)
+
+	conv_6 = convolution.Conv_Layer(filter_width=f, channels=128, nf=128, activation_function="ReLu", stride=stride, padding=padding)
+	
+	pool_3 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0.5)
+
+	mlp_1 = mlp.MLP_Layer(input_dim=(width//2**3)**2*128, output_dim=128, activation_function="ReLu", dropout_prob=0.5)
+
+	mlp_2 = mlp.MLP_Layer(input_dim=128, output_dim=n_classes, activation_function="linear")
+
+	cnn_test = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, conv_6, pool_3, mlp_1, mlp_2], \
+					lam=lam, device=device)
+	
+	cnn_test.dataloader = dataload
+
+	k = 2
+	iters_per_epoch = n_train / batch_size
+	starting_cycle_length = k * iters_per_epoch    # k in [2, 10]
+	cyclic_schedule = utils.cyclic_increasing_lr(starting_cycle_length=starting_cycle_length, min_lr=1e-4, max_lr=1e-3)
+	adamW_optim = utils.AdamW()
+	cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'][..., :5000], y_train=data['y_train'][:5000], X_val=X_val, \
+						Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
+						batch_size=batch_size, max_num_epochs=200, show_plots=True, profile=False, debug_logs=False)
+
+
+
 if __name__ == "__main__":
 	#test_train_contrastive_tiny(checkpoint=None)
 	#time_network()
-	test_train_augment_tiny()
+	big_cifar()
 	#test_overfit_small_sample()
