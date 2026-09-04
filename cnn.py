@@ -33,8 +33,9 @@ class CNN:
 			'train_accuracys': [], 'val_accuracys': [], 'learning_rates': []
 		}
 		"""The history of the training run. \\
-								self.__back_pass(lr, optim_grads, dropout_prob=self.dropout_prob)
-			'train_accuracys', 'val_accuracys'"""
+			'epochs': [], 'train_steps': [], 'train_costs': [], 'train_losses': [],
+					'val_steps': [], 'val_costs': [], 'val_losses': [],
+					'train_accuracys': [], 'val_accuracys': [], 'learning_rates': []"""
 	
 		self.current_epoch = 0
 		"""Current epoch. """
@@ -514,12 +515,15 @@ class CNN:
 		schedule = self.lr_schedule
 
 		training_losses = self.history['train_losses']
+		training_costs = self.history['train_costs']
 		validation_losses = self.history['val_losses']
+		validation_costs = self.history['val_costs']
 		learning_rates = self.history['learning_rates']
 		if show_plots:
 			plt.ion()
 			loss_fig, loss_ax = plt.subplots(figsize=(8, 4))
 			raw_loss_line, = loss_ax.plot([], [], linestyle='--', color='r', label='raw loss')
+			raw_cost_line = loss_ax.plot([], [], linestyle='--', color='y', label='raw cost')
 			#smoothed_loss_line, = loss_ax.plot([], [], linestyle='-', color='green', label='avg last 50')
 			validation_loss_line, = loss_ax.plot([], [], linestyle='-', marker='o', color='purple', label='validation loss')
 			loss_ax.set_xlabel('Epoch')
@@ -576,7 +580,7 @@ class CNN:
 					output_batch2 = self.forward(aug_batch2, normalize_at=normalize_at) # (10, batch_size)
 
 					if debug_logs: print(f"Output magnitude at step {update_step}: {torch.round(output_batch1.norm(), decimals=2)}")
-					loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=.1) # Choise of temp is based on report
+					loss, cost = self.__get_contrastive_loss(output_batch1, output_batch2, temp=.1) # Choise of temp is based on report
 					loss.backward()
 					last_filter_norm = self.layers[0].W.norm().item()
 
@@ -590,11 +594,14 @@ class CNN:
 						self.show_filters(self.layers[0].W, freeze=False, step=update_step)
 						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]['W'].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\nOutput magnitude: {output_batch1.norm().item():.6f}\n====================\n")
 						batch_loss = loss.detach().cpu().item()
+						batch_cost = cost.detach().cpu().item()
 						training_losses.append(batch_loss)
+						training_costs.append(batch_cost)
 
 						if show_plots:
 							epochs = np.arange(1, len(training_losses) + 1)/num_minibatches
 							raw_loss_line.set_data(epochs, training_losses)
+							raw_cost_line.set_data(epochs, training_costs)
 							lr_steps = np.arange(1, len(learning_rates) + 1)/num_minibatches
 							lr_line.set_data(lr_steps, learning_rates)
 							loss_ax.relim()
@@ -613,6 +620,7 @@ class CNN:
 					X_val = X_val.to(self.device) # We only do one batch of val
 
 					val_losses = []
+					val_costs = []
 					num_val_batches = X_val.shape[-1] // batch_size
 
 					for k in range(num_val_batches):
@@ -626,8 +634,9 @@ class CNN:
 						output_batch1 = self.forward(val_aug_1, normalize_at=normalize_at)
 						output_batch2 = self.forward(val_aug_2, normalize_at=normalize_at)
 
-						v_loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=0.1)
+						v_loss, v_cost = self.__get_contrastive_loss(output_batch1, output_batch2, temp=0.1)
 						val_losses.append(v_loss.detach().cpu().item())
+						val_costs.append(v_cost.detach().cpu().item())
 
 					# Mean over all equal-sized validation minibatches
 					val_loss_value = float(np.mean(val_losses)) if val_losses else 0.0
@@ -660,8 +669,13 @@ class CNN:
 
 
 
-	def __get_contrastive_loss(self, aug_set1: torch.Tensor, aug_set2: torch.Tensor, temp: float) -> torch.Tensor:
-		"""Returns the contrastive loss from paper in the report. """
+	def __get_contrastive_loss(self, aug_set1: torch.Tensor, aug_set2: torch.Tensor, temp: float) -> tuple[torch.Tensor, torch.Tensor]:
+		"""Returns the contrastive loss from paper in the report. 
+		
+		Returns:
+			loss (torch.Tensor): The loss. 
+			cost (torch.Tensor): The cost. Which is loss + regularisation. """
+		
 		batch_N = aug_set1.shape[1]
 		aug_stack = torch.concat([aug_set1, aug_set2], dim=1)
 		aug_stack = torch.nn.functional.normalize(aug_stack, p=2, dim = 0)
@@ -675,7 +689,15 @@ class CNN:
 		nominator = torch.cat([pos_1_to_2, pos_2_to_1])
 		denominator = torch.sum(exp_sim_no_self, dim=1)
 
-		return torch.mean(-torch.log(nominator/denominator) + 1e-8)
+		loss = torch.mean(-torch.log(nominator/denominator) + 1e-8)
+
+		reg = 0
+		if self.lam != 0: #Reg is zero if lam is zero
+			for layer in self.__param_layers:
+				cur_weights:torch.Tensor = layer.W
+				reg += self.lam * torch.sum(cur_weights**2)
+
+		return loss, loss + reg
 	
 
 
