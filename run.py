@@ -219,7 +219,8 @@ def run_pure_supervised(settings: Settings = Settings(), checkpoint: str = None,
 	try: 
 		cnn_test.minibatchGD(X_train=X_train, Y_train=data['Y_train'], y_train=data['y_train'], X_val=X_val, \
 					Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
-					batch_size=settings.batch_size, max_num_epochs=supervised_epochs, show_plots=True, profile=True, debug_logs=True, save_path=checkpoint, epoch_save_step=epoch_save_step)
+					batch_size=settings.batch_size, max_num_epochs=supervised_epochs, show_plots=True, profile=True, debug_logs=True, save_path=checkpoint, epoch_save_step=epoch_save_step, \
+						normalize_at=[7])
 
 		if checkpoint: cnn_test.save_checkpoint(f"{checkpoint}_supervised")
 	except KeyboardInterrupt:
