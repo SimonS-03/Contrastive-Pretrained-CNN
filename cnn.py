@@ -337,7 +337,7 @@ class CNN:
 					layer.b.requires_grad = True
 				
 			for j in range(num_minibatches):
-				if debug_logs:
+				if debug_logs:	
 					print(f"minibatch {j}")
 
 				do_profile = profile and profiled_batches_done < profile_batches \
@@ -358,7 +358,7 @@ class CNN:
 					self.sync(); t = time.perf_counter(); timings["data_slice"] += t - t_start; t_start = t
 
 				with torch.no_grad():
-					X_aug = self.dataloader.augment_data(X=X_batch, individual_aug=False)
+					X_aug = self.dataloader.augment_data(X=X_batch, individual_aug=False, min_crop=.65)
 
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["augment"] += t - t_start; t_start = t
@@ -429,8 +429,7 @@ class CNN:
 						fig.canvas.draw()
 						fig.canvas.flush_events()
 
-						# Filter display window (separate from fig)
-						self.show_filters(self.layers[0].W, freeze=False, step=update_step)
+			
 
 
 				if do_profile:
@@ -459,8 +458,11 @@ class CNN:
 
 			if not show_plots or (i%epoch_plot_period != 0 and i != max_num_epochs-1): # We only need the lists below for plots
 				continue
-
+			
 			with torch.no_grad():
+				# Filter display window (separate from fig)
+				self.show_filters(self.layers[0].W, freeze=False, epoch=self.history['train_steps'][-1])
+
 				self.history['epochs'].append(self.current_epoch)
 				self.history['val_steps'].append(update_step/num_minibatches)
 
@@ -505,7 +507,7 @@ class CNN:
 
 	def contrastiveLearning(self, X_train: torch.Tensor, X_val: torch.Tensor,
 					 max_num_epochs: int = 40, batch_size: int = 100, epoch_save_step: int = 5,
-					shuffle_set: bool = True, show_plots: bool = True, debug_logs: bool = False, save_path: str = None, dropout_prob: float = 0.0, normalize_at: list[int] = []):
+					shuffle_set: bool = True, show_plots: bool = True, debug_logs: bool = False, save_path: str = None, normalize_at: list[int] = []):
 		""" Does contrastive self-supervised learning """
 
 		n_datapoints = X_train.shape[-1]
@@ -519,18 +521,18 @@ class CNN:
 		if show_plots:
 			plt.ion()
 			loss_fig, loss_ax = plt.subplots(figsize=(8, 4))
-			raw_loss_line, = loss_ax.plot([], [], linestyle='--', color='r', label='raw loss')
+			raw_loss_line, = loss_ax.plot([], [], linestyle='--', color='r', label='training batch loss')
 			#smoothed_loss_line, = loss_ax.plot([], [], linestyle='-', color='green', label='avg last 50')
-			validation_loss_line, = loss_ax.plot([], [], linestyle='-', marker='o', color='purple', label='validation loss')
+			validation_loss_line, = loss_ax.plot([], [], linestyle='-', marker='o', color='purple', label='validation epoch loss')
 			loss_ax.set_xlabel('Epoch')
-			loss_ax.set_ylabel('Training loss')
+			loss_ax.set_ylabel('NT-Xent loss')
 			loss_ax.set_title('Contrastive Training loss')
 			loss_ax.legend()
 			lr_fig, lr_ax = plt.subplots(figsize=(8, 4))
 			lr_line, = lr_ax.plot([], [], linestyle='-', color='blue', label='learning rate')
 			lr_ax.set_xlabel('Epoch')
 			lr_ax.set_ylabel('Learning rate')
-			lr_ax.set_title('Contrastive Learning Rate')
+			lr_ax.set_title('Increasing Cyclical Learning Rate')
 			lr_ax.legend()
 			loss_fig.show()
 			lr_fig.show()
@@ -563,8 +565,8 @@ class CNN:
 					
 					X_batch = X_train_shuffled[..., batch_start:batch_end].to(self.device)
 					with torch.no_grad():
-						aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.4, rot_prob=0.1, noise_prob=.4)
-						aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.4, rot_prob=0.1, noise_prob=.4)
+						aug_batch1 = self.dataloader.augment_data(X_batch, flip_prob=.4, rot_prob=0.1, noise_prob=.4, individual_aug=True)
+						aug_batch2 = self.dataloader.augment_data(X_batch, flip_prob=.4, rot_prob=0.1, noise_prob=.4, individual_aug=True)
 	
 					params = [{"W": layer.W, "b": layer.b} for layer in self.__param_layers]
 					if debug_logs: print(f"Magnitude of first W in params before forward: {params[0]['W'].norm()}")
@@ -587,7 +589,7 @@ class CNN:
 						learning_rates.append(lr)
 						optim_grads = optim.update_gradient(params=params, grads=auto_grads, iteration=update_step, lam=self.lam) 
 						self.__back_pass(lr, optim_grads)
-						self.show_filters(self.layers[0].W, freeze=False, step=update_step)
+						self.show_filters(self.layers[0].W, freeze=False, step=len(training_losses)/num_minibatches)
 						print(f"\n======= Step {update_step} ======= \nLoss: {loss.item():.6f}\nFilter grad: {auto_grads[0]['W'].norm().item():.6f}, diff: {self.layers[0].W.norm().item() - last_filter_norm:.6f}\nOutput magnitude: {output_batch1.norm().item():.6f}\n====================\n")
 						batch_loss = loss.detach().cpu().item()
 						training_losses.append(batch_loss)
@@ -802,7 +804,7 @@ class CNN:
 			
 
 		layers_to_load = self.__param_layers if reinitialize_last <= 0 else self.__param_layers[:-reinitialize_last]
-		model_state_to_load = model_state if reinitialize_last <= 0 else model_state[:-reinitialize_last]
+		model_state_to_load = model_state if reinitialize_last <= 0 else model_state[:len(layers_to_load)]
 
 		if len(model_state_to_load) != len(layers_to_load):
 			raise ValueError("The loaded model has a different number of layers than the current model!")
@@ -818,7 +820,7 @@ class CNN:
 		print(f"Checkpoint successfully loaded from {filepath}")
 
 	
-	def show_filters(self, F: torch.Tensor, freeze: bool = False, step = 0):
+	def show_filters(self, F: torch.Tensor, freeze: bool = False, epoch = 0):
 		# F (the first conv layer) will have shape (nf, 3, width of filters, height of filters)
 		
 		nf = F.shape[0]
@@ -862,7 +864,7 @@ class CNN:
 			plt.ioff()
 			plt.show()
 		else:
-			self.filter_fig.suptitle(f"Filters at step: {step}")
+			self.filter_fig.suptitle(f"Filters at epoch: {epoch}")
 			self.filter_fig.canvas.draw()
 			self.filter_fig.canvas.flush_events()
 
