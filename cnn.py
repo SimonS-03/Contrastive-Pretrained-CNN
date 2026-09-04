@@ -10,19 +10,16 @@ import numpy as np
 import time
 
 class CNN:
-	def __init__(self, layers: list[Conv_Layer | MLP_Layer | Pool_Layer], lam: float = 1e-3, dropout_prob:float=0, device:str="cpu", adamW_optim: optimizer = None, lr_schedule: lr_schedule = None):
+	def __init__(self, layers: list[Conv_Layer | MLP_Layer | Pool_Layer], lam: float = 1e-3, device:str="cpu", adamW_optim: optimizer = None, lr_schedule: lr_schedule = None):
 		"""Creates a linear classifier with 10 output classes.
 		Args:
 			layers (list[Conv_Layer | MLP_Layer | Pool_Layer]): A list of either convolution-layers or mlp-layers, already initialized.
 			lam (float): The lambda used in L2 regularization of the layers during backward pass. 
-			dropout_prob (float): Probability of a node being turned off for each update step. 
 			devide (str): Which device to run the layer on. (cpu, mps)"""
 		self.layers = layers
 		"""All the neural network layers. """
 		self.lam = lam
 		"""The regularisation term. """
-		self.dropout_prob = dropout_prob
-		"""Probability of a node being turned off for each update step. """
 		self.dataloader = Dataloader()
 		"""The dataloader class for this CNN. """
 		self.device:str = device
@@ -74,12 +71,12 @@ class CNN:
 			torch.cuda.synchronize()
 	
 
-	def forward(self, x: torch.Tensor, dropout_prob:float, normalize_at: list[int] = []) -> torch.Tensor:
+	def forward(self, x: torch.Tensor,  apply_dropout:bool=True, normalize_at: list[int] = []) -> torch.Tensor:
 		"""Do a forward pass of the classifier with the loaded Mx (needs to be loaded!)
 		
 		Args:
 			x (torch.Tensor): The input of the whole network. (height, width, nf, n)
-			dropout_prob (float): Probability of an output node being turned off for the forward pass.
+			apply_dropout (bool): If dropout shall be applied. 
 			
 		Returns:
 			x (torch.Tensor): The output of the whole network. (output_dim, n)"""
@@ -97,11 +94,8 @@ class CNN:
 			
 				#Flatten input
 				x = x.reshape(x.shape[0]*x.shape[1]*x.shape[2], x.shape[3])
-
-			if layer == self.layers[-1]:
-				dropout_prob = 0 #No dropout on the last layer
 			
-			x = layer.forward(x, dropout_prob)
+			x = layer.forward(x, apply_dropout=apply_dropout)
 
 			# Normalization 
 			if normalize_at and i in normalize_at:
@@ -211,17 +205,13 @@ class CNN:
 		return grads
 
 
-	def __back_pass(self, lr: float, grads: list[dict[str, float]], dropout_prob: float = None) -> None:
+	def __back_pass(self, lr: float, grads: list[dict[str, float]]) -> None:
 		"""Updates the network based on the gradients. 
 		
 		Args:
 			lr: learning rate,
 			grads: list of dictionaries containign gradient for each parameter.
-			dropout_prob: Dropout probability used in the forward pass.
 			"""
-
-		if dropout_prob is None:
-			dropout_prob = self.dropout_prob
 
 		for i in range(len(grads)):
 			cur_layer = self.__param_layers[i]
@@ -340,7 +330,7 @@ class CNN:
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["augment"] += t - t_start; t_start = t
 					
-				P_batch = self.forward(X_aug, self.dropout_prob)
+				P_batch = self.forward(X_aug)
 				if do_profile:
 					self.sync(); t = time.perf_counter(); timings["forward"] += t - t_start; t_start = t
 				Y_batch = Y_train[:, batch_idx]
@@ -450,7 +440,7 @@ class CNN:
 					X_val_batch = X_val[..., val_batch_start:val_batch_end]
 					X_val_batch = X_val_batch.to(self.device)
 					Y_val_batch = Y_val[..., val_batch_start:val_batch_end]
-					P_val = self.forward(X_val_batch, dropout_prob=0)
+					P_val = self.forward(X_val_batch)
 					val_cost_cur, val_loss_cur = self.cost_function(P_val, Y_val_batch)
 					val_cost += val_cost_cur; val_loss += val_loss_cur
 
@@ -549,8 +539,8 @@ class CNN:
 						param_set["W"].grad = None
 						param_set["b"].grad = None
 					
-					output_batch1 = self.forward(aug_batch1, dropout_prob=dropout_prob, normalize_at=normalize_at) # (10, batch_size)
-					output_batch2 = self.forward(aug_batch2, dropout_prob=dropout_prob, normalize_at=normalize_at) # (10, batch_size)
+					output_batch1 = self.forward(aug_batch1, normalize_at=normalize_at) # (10, batch_size)
+					output_batch2 = self.forward(aug_batch2, normalize_at=normalize_at) # (10, batch_size)
 
 					if debug_logs: print(f"Output magnitude at step {update_step}: {torch.round(output_batch1.norm(), decimals=2)}")
 					loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=.1) # Choise of temp is based on report
@@ -600,8 +590,8 @@ class CNN:
 						val_aug_1 = self.dataloader.augment_data(X_val_batch, flip_prob=0.4, rot_prob=0.1, noise_prob=0.4)
 						val_aug_2 = self.dataloader.augment_data(X_val_batch, flip_prob=0.4, rot_prob=0.1, noise_prob=0.4)
 
-						output_batch1 = self.forward(val_aug_1, dropout_prob=0.0, normalize_at=normalize_at)
-						output_batch2 = self.forward(val_aug_2, dropout_prob=0.0, normalize_at=normalize_at)
+						output_batch1 = self.forward(val_aug_1, normalize_at=normalize_at)
+						output_batch2 = self.forward(val_aug_2, normalize_at=normalize_at)
 
 						v_loss = self.__get_contrastive_loss(output_batch1, output_batch2, temp=0.1)
 						val_losses.append(v_loss.detach().cpu().item())
@@ -687,7 +677,7 @@ class CNN:
 			X_batch = X_batch.to(self.device)
 			y_batch = y[batch_start:batch_end]
 
-			P = self.forward(X_batch, dropout_prob=0) # (10, batch_size)
+			P = self.forward(X_batch, apply_dropout=False) # (10, batch_size)
 			guesses = torch.argmax(P, axis = 0).float()
 
 			corrects = torch.isclose(guesses, y_batch).float()
@@ -698,7 +688,7 @@ class CNN:
 
 	
 	def display_accuracy_histogram(self, X, y):
-		P = self.forward(X, dropout_prob=0) # (10, batch_size)
+		P = self.forward(X) # (10, batch_size)
 		guesses = torch.argmax(P, axis = 0)
 		corrects = torch.isclose(guesses, y)
 
@@ -798,25 +788,30 @@ class CNN:
 	def show_filters(self, F: torch.Tensor, freeze: bool = False, step = 0):
 		# F (the first conv layer) will have shape (nf, 3, width of filters, height of filters)
 		
+		nf = F.shape[0]
+		num_to_show = min(64, nf)
+
 		if not hasattr(self, 'filter_fig') or not plt.fignum_exists(self.filter_fig.number):
 			plt.ion() 
-			self.filter_fig, self.filter_axs = plt.subplots(8, 8, figsize=(10, 5))
+			ncols = math.ceil(math.sqrt(num_to_show))
+			nrows = math.ceil(num_to_show / ncols)
+			self.filter_fig, self.filter_axs = plt.subplots(nrows, ncols, figsize=(10, 5))
 			plt.show(block=False)
 			self.filter_axs = self.filter_axs.flatten()
 			
-			# Create a list to store the actual Image objects
+			# Turn off any unused axes (grid may have more cells than num_to_show)
+			for j in range(num_to_show, len(self.filter_axs)):
+				self.filter_axs[j].axis('off')
+
 			self.im_objects = [None] * len(self.filter_axs)
 
 		if not plt.fignum_exists(self.filter_fig.number):
 			return
 
 		F_visual = F.detach().clone()
-		nf = F.shape[0]
 		max_abs = torch.max(torch.abs(F_visual)).item()
 		F_visual = F_visual.permute((2, 3, 1, 0)).contiguous()
 
-		num_to_show = min(64, nf)
-		
 		for i in range(num_to_show):
 			im = (F_visual[..., i] / (2 * max_abs + 1e-8)) + 0.5
 			im = torch.clamp(im, 0.0, 1.0).cpu().numpy()

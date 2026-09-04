@@ -445,7 +445,7 @@ class Dataloader:
 
         n_images = X.shape[0]
 
-        X_im = X.reshape(3, 32, 32, n_images).permute(2, 1, 0, 3)
+        X_im = X.reshape(n_images, 3, 32, 32).permute(2, 3, 1, 0)
         
         # Get the labels
         labels = dict[b'labels']
