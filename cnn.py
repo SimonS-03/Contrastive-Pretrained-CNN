@@ -229,6 +229,26 @@ class CNN:
 		return [l for l in self.layers if not isinstance(l, Pool_Layer)]
 
 
+	def __average_loss(self, list_to_average:list, lookback_steps:int):
+		"""Return the average of the list given how many steps back to average. 
+		
+		list_to_average (list): The list to average over. 
+		lookback_steps (int): The number of items to look back on to average. """
+
+		average_list = []
+
+		for i in range(len(list_to_average)):
+
+			cur_sum = 0
+			cur_lookback = min(i, lookback_steps)+1 #How many items to include in the list
+			for j in range(cur_lookback):
+				cur_sum += list_to_average[i-j]
+
+			average_list.append(cur_sum / cur_lookback)
+
+		return average_list
+
+
 	def minibatchGD(self, X_train:torch.Tensor, Y_train:torch.Tensor, y_train:torch.Tensor, X_val:torch.Tensor, Y_val:torch.Tensor, 
 				 y_val:torch.Tensor, schedule: lr_schedule, optim: optimizer, max_num_epochs: int = 40, batch_size: int = 100, 
 					shuffle_set: bool = True, show_plots: bool = True, epoch_plot_period: int = 1, profile:bool=False, 
@@ -342,8 +362,8 @@ class CNN:
 					self.history['train_losses'].append(batch_loss.item())
 
 					ax1.clear()
-					ax1.plot(self.history['train_steps'], self.history['train_costs'], label="Training Cost", color="y")
-					ax1.plot(self.history['train_steps'], self.history['train_losses'], label="Training Loss", linestyle='--', color="r")
+					ax1.plot(self.history['train_steps'], self.__average_loss(self.history['train_costs'], num_minibatches-1), label="Training Cost", color="y")
+					ax1.plot(self.history['train_steps'], self.__average_loss(self.history['train_losses'], num_minibatches-1), label="Training Loss", linestyle='--', color="r")
 					ax1.plot(self.history['val_steps'], self.history['val_costs'], label="Validation Cost", color="b")
 					ax1.plot(self.history['val_steps'], self.history['val_losses'], label="Validation Loss", linestyle='--', color="c")
 					ax1.set_xlabel("Epoch")
