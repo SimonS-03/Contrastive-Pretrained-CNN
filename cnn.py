@@ -376,8 +376,8 @@ class CNN:
 					self.history['train_losses'].append(batch_loss.item())
 
 					ax1.clear()
-					ax1.plot(self.history['train_steps'], self.__average_loss(self.history['train_costs'], num_minibatches-1), label="Training Cost", color="y")
-					ax1.plot(self.history['train_steps'], self.__average_loss(self.history['train_losses'], num_minibatches-1), label="Training Loss", linestyle='--', color="r")
+					ax1.plot(self.history['train_steps'], self.__average_loss(self.history['train_costs'], num_minibatches), label="Training Cost", color="y")
+					ax1.plot(self.history['train_steps'], self.__average_loss(self.history['train_losses'], num_minibatches), label="Training Loss", linestyle='--', color="r")
 					ax1.plot(self.history['val_steps'], self.history['val_costs'], label="Validation Cost", color="b")
 					ax1.plot(self.history['val_steps'], self.history['val_losses'], label="Validation Loss", linestyle='--', color="c")
 					ax1.set_xlabel("Epoch")

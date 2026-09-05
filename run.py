@@ -4,6 +4,7 @@ import torch
 import pickle
 import mlp, cnn, convolution, dataloader, pooling
 import utils
+import plotting
 
 class Settings:
 	def __init__(self, training_samples = 1000, validation_samples = 1000, batch_size=100, show_plots: bool = True, dropout_prob: float = 0):
@@ -80,7 +81,7 @@ def run_contrastive(settings: Settings = Settings(), checkpoint: str = None, con
 		cnn_test.save_checkpoint(f"{checkpoint}_contrastive", include_training_state=False) if checkpoint else None
 	except KeyboardInterrupt:
 		print("Training interupted, saving snapshot...")
-		if checkpoint: cnn_test.save_checkpoint(f"{checkpoint}_contrastive_interupted", include_training_state=False)
+		if checkpoint: cnn_test.save_checkpoint(f"{checkpoint}_contrastive_interupted", include_training_state=True)
 
 
 def start_finetuning(settings: Settings = Settings(), checkpoint: str = None, epochs: int = 20, epoch_save_step: int = 5, freeze_body_epochs: int = 10):
@@ -89,12 +90,7 @@ def start_finetuning(settings: Settings = Settings(), checkpoint: str = None, ep
 
 	device = "mps"
 	dataload = dataloader.Dataloader()
-	data = dataload.load_cifar_data()
-	X_train = dataload.normalize(data['X_train'][..., :settings.training_samples])
-	del data['X_train']
-	X_val = dataload.normalize(data['X_val'][..., :settings.validation_samples], use_train_data=True)
-	del data['X_val']
-	dataload.set_normal_device(device=device)
+	data = dataload.load_cifar_data(n_train=settings.training_samples, n_val=settings.validation_samples)
 
 	Y_train=data['Y_train']
 	y_train = data['y_train']
@@ -105,7 +101,7 @@ def start_finetuning(settings: Settings = Settings(), checkpoint: str = None, ep
 	rgb = 3
 	lam = 2.5e-4
 	n_classes = data['Y_train'].shape[0]
-	width = X_train.shape[0]
+	width = data['X_train'].shape[0]
 
 	# Body inherited from contrastive ================== 
 	conv_1 = convolution.Conv_Layer(filter_width=f, channels=rgb, nf=32, activation_function="ReLu", stride=stride, padding=padding)
@@ -131,7 +127,7 @@ def start_finetuning(settings: Settings = Settings(), checkpoint: str = None, ep
 	
 	mlp_2 = mlp.MLP_Layer(input_dim=128, output_dim=n_classes, activation_function="linear")
 
-	n_train = X_train.shape[-1]
+	n_train = data['X_train'].shape[-1]
 	k = 2
 	iters_per_epoch = n_train / settings.batch_size
 	starting_cycle_length = k * iters_per_epoch    # k in [2, 10]
@@ -153,10 +149,10 @@ def start_finetuning(settings: Settings = Settings(), checkpoint: str = None, ep
 
 	try: 
 		# Body will be frozen for the first
-		cnn_test.minibatchGD(X_train=X_train, Y_train=Y_train, y_train=y_train, X_val=X_val, \
+		cnn_test.minibatchGD(X_train=data["X_train"], Y_train=Y_train, y_train=y_train, X_val=data['X_val'], \
 					Y_val=data['Y_val'], y_val=data['y_val'], schedule=cyclic_schedule, optim=adamW_optim, \
 					batch_size=settings.batch_size, max_num_epochs=epochs, show_plots=True, profile=True, debug_logs=False, save_path=checkpoint, epoch_save_step=epoch_save_step, \
-						supervised_head_size=2, freeze_body_epochs=freeze_body_epochs, normalize_at=[8])
+						supervised_head_size=2, freeze_body_epochs=freeze_body_epochs, normalize_at=[])
 
 		if checkpoint: cnn_test.save_checkpoint(f"{checkpoint}_supervised")
 	except KeyboardInterrupt:
@@ -248,11 +244,83 @@ def run_full(settings: Settings = Settings(), checkpoint: str = None, contrastiv
 	run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=contrastive_epochs, epoch_save_step=5)
 	start_finetuning(settings, checkpoint=checkpoint, epochs=10, epoch_save_step=5, freeze_body_epochs=5)
 
+
+def get_plots(file:str) -> None:
+	"""Plots all the relevant plots from a given file. 
+	
+	Args:
+		file (str): The file name. """
+
+	checkpoint = torch.load("Saved_Networks/" + file)
+	model_state = checkpoint.get("model_state")
+	history = checkpoint.get("history")
+
+	plotting.show_filters(model_state[0]['W'])
+
+	plotting.graphs(history=history)
+
+
+def test_results(file:str):
+	"""Get the test results. 
+	
+	Args:
+		file (str): The file name. """
+
+	device = 'mps'
+
+	dataload = dataloader.Dataloader()
+	dataload.load_cifar_data(n_train=None, n_val=1000)
+	X_test, _, y_test = dataload.LoadBatch("test_batch")
+	X_test = X_test.to(device=device)
+	y_test = y_test.float().to(device=device)
+	dataload.normalize(X_test, use_train_data=True)
+
+	f = 3
+	stride = 1
+	padding = 1
+	rgb = 3
+	lam = 2.5e-4
+	n_classes = 10
+	width = 32
+
+	conv_1 = convolution.Conv_Layer(filter_width=f, channels=rgb, nf=32, activation_function="ReLu", stride=stride, padding=padding)
+	
+	conv_2 = convolution.Conv_Layer(filter_width=f, channels=32, nf=32, activation_function="ReLu", stride=stride, padding=padding)
+
+	pool_1 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0)
+
+	conv_3 = convolution.Conv_Layer(filter_width=f, channels=32, nf=64, activation_function="ReLu", stride=stride, padding=padding)
+	
+	conv_4 = convolution.Conv_Layer(filter_width=f, channels=64, nf=64, activation_function="ReLu", stride=stride, padding=padding)
+
+	pool_2 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0)
+
+	conv_5 = convolution.Conv_Layer(filter_width=f, channels=64, nf=128, activation_function="ReLu", stride=stride, padding=padding)
+
+	conv_6 = convolution.Conv_Layer(filter_width=f, channels=128, nf=128, activation_function="ReLu", stride=stride, padding=padding)
+	
+	pool_3 = pooling.Pool_Layer(kernel=2, stride=2, padding=0, dropout_prob=0)
+
+	# Finetuning head =====================================
+	mlp_1 = mlp.MLP_Layer(input_dim=(width//2**3)**2*128, output_dim=128, activation_function="ReLu", dropout_prob=0)
+	
+	mlp_2 = mlp.MLP_Layer(input_dim=128, output_dim=n_classes, activation_function="linear")
+
+
+	cnn_result = cnn.CNN([conv_1, conv_2, pool_1, conv_3, conv_4, pool_2, conv_5, conv_6, pool_3, mlp_1, mlp_2], \
+					lam=lam, device=device, lr_schedule=None, adamW_optim=None)
+
+	cnn_result.load_checkpoint(filepath=file, load_training_state=False, reinitialize_last=0)
+
+	print("Test accuracy:", cnn_result.get_accuracy(X_test, y_test).item())
+
 if __name__ == "__main__":
 	# In the CIFAR set, there are 60000 training samples and 1000 validation samples.
-	settings = Settings(training_samples=None, validation_samples=1000, batch_size=100, show_plots=True, dropout_prob=0)
+	#settings = Settings(training_samples=None, validation_samples=1000, batch_size=100, show_plots=True, dropout_prob=0)
 
-	checkpoint= "lr=3,4"
-	run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=100, epoch_save_step=5)
+	#checkpoint= "CONTRASTIVE_PRETRAINING_epoch_16"
+	#run_contrastive(settings, checkpoint=checkpoint, contrastive_epochs=100, epoch_save_step=5)
 	#start_finetuning(settings, checkpoint=checkpoint, epochs=50, epoch_save_step=2, freeze_body_epochs=0)
 	#run_pure_supervised(settings, checkpoint=checkpoint, supervised_epochs=20, epoch_save_step=5)
+	#get_plots("CONTRASTIVE_PRETRAINING_epoch_16_epoch_16")
+	test_results("CONTRASTIVE_PRETRAINING_epoch_16_epoch_16")
